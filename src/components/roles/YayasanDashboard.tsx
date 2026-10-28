@@ -1,0 +1,761 @@
+import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
+import { User, UserRole } from '../../types';
+import { 
+  Building2, 
+  Printer, 
+  Download, 
+  Users, 
+  UserPlus, 
+  FileSpreadsheet, 
+  Edit3, 
+  Trash2, 
+  CheckCircle2, 
+  X,
+  FileText,
+  Calendar,
+  Sparkles
+} from 'lucide-react';
+
+interface YayasanDashboardProps {
+  activeTab: string;
+}
+
+export const YayasanDashboard: React.FC<YayasanDashboardProps> = ({ activeTab }) => {
+  const { 
+    users, 
+    students, 
+    sessions, 
+    attendances, 
+    schedules, 
+    addUser, 
+    updateUser, 
+    deleteUser 
+  } = useApp();
+
+  // Report Filter State
+  const [reportMonth, setReportMonth] = useState<number>(10);
+  const [reportYear, setReportYear] = useState<number>(2026);
+  const [reportType, setReportType] = useState<'siswa' | 'guru'>('siswa');
+
+  // User Management State
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userFormData, setUserFormData] = useState<{
+    name: string;
+    role: UserRole;
+    email: string;
+    phone: string;
+    title: string;
+    specialization: string;
+    studentId?: string;
+  }>({
+    name: '',
+    role: 'guru',
+    email: '',
+    phone: '0812-',
+    title: '',
+    specialization: ''
+  });
+
+  const teachers = users.filter(u => u.role === 'guru');
+
+  // Month names in Indonesian
+  const monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  // Calculate Student Attendance Stats for the selected Month
+  const studentStats = students.map((student) => {
+    // Filter sessions in that month
+    const monthPrefix = `${reportYear}-${String(reportMonth).padStart(2, '0')}`;
+    const studentMonthSessions = sessions.filter(
+      s => s.studentId === student.id && s.date.startsWith(monthPrefix)
+    );
+    const schedule = schedules.find(s => s.studentId === student.id);
+    const durationHours = (schedule?.durationMinutes || 60) / 60;
+
+    let hadir = 0;
+    let sakit = 0;
+    let izin = 0;
+    let alpha = 0;
+
+    studentMonthSessions.forEach(session => {
+      const att = attendances.find(a => a.sessionId === session.id);
+      if (att) {
+        if (att.status === 'hadir') hadir++;
+        else if (att.status === 'sakit') sakit++;
+        else if (att.status === 'izin') izin++;
+        else if (att.status === 'alpha') alpha++;
+      }
+    });
+
+    const totalEvaluated = hadir + sakit + izin + alpha;
+    const totalHours = hadir * durationHours;
+    const attendancePercentage = totalEvaluated > 0 ? Math.round((hadir / totalEvaluated) * 100) : 0;
+
+    return {
+      student,
+      totalSessions: studentMonthSessions.length,
+      evaluatedSessions: totalEvaluated,
+      hadir,
+      sakit,
+      izin,
+      alpha,
+      totalHours,
+      attendancePercentage,
+      status: student.status
+    };
+  });
+
+  // Calculate Teacher Attendance & Teaching Hours Stats
+  const teacherStats = teachers.map((teacher) => {
+    const monthPrefix = `${reportYear}-${String(reportMonth).padStart(2, '0')}`;
+    
+    // Sessions where this teacher was primary
+    const primarySessions = sessions.filter(
+      s => s.primaryTeacherId === teacher.id && s.date.startsWith(monthPrefix)
+    );
+    
+    // Sessions where this teacher was substitute
+    const substituteSessions = sessions.filter(
+      s => s.substituteTeacherId === teacher.id && s.date.startsWith(monthPrefix)
+    );
+
+    // Completed sessions taught
+    const totalTaught = sessions.filter(
+      s => (
+        (s.primaryTeacherId === teacher.id && !s.isSubstituted) || 
+        s.substituteTeacherId === teacher.id
+      ) && 
+      s.date.startsWith(monthPrefix) && 
+      s.status === 'completed'
+    ).length;
+
+    // Substitute sessions given to others because teacher was absent/leave
+    const substitutedOutSessions = sessions.filter(
+      s => s.primaryTeacherId === teacher.id && s.isSubstituted && s.date.startsWith(monthPrefix)
+    ).length;
+
+    // Estimate total teaching hours (approx 1.25 hour average)
+    const totalHours = Math.round(totalTaught * 1.2);
+
+    return {
+      teacher,
+      primaryCount: primarySessions.length,
+      substituteCount: substituteSessions.length,
+      totalTaught,
+      substitutedOutSessions,
+      totalHours,
+      activityRate: (primarySessions.length + substituteSessions.length) > 0 ? 100 : 0
+    };
+  });
+
+  // Handle Export CSV
+  const handleExportCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    
+    if (reportType === 'siswa') {
+      csvContent += "No,Nama Siswa,Program Terapi,Status Siswa,Total Sesi,Hadir,Sakit,Izin,Alpha,Total Jam Terapi,Persentase Kehadiran (%)\n";
+      studentStats.forEach((row, index) => {
+        csvContent += `${index + 1},"${row.student.name}","${row.student.therapyType}","${row.status}",${row.totalSessions},${row.hadir},${row.sakit},${row.izin},${row.alpha},${row.totalHours} Jam,${row.attendancePercentage}%\n`;
+      });
+    } else {
+      csvContent += "No,Nama Guru Terapis,Spesialisasi,Sesi Utama,Sesi Pengganti (Limpahan),Total Sesi Terlaksana,Total Jam Mengajar,Status Izin Dialihkan\n";
+      teacherStats.forEach((row, index) => {
+        csvContent += `${index + 1},"${row.teacher.name}","${row.teacher.specialization || row.teacher.title}",${row.primaryCount},${row.substituteCount},${row.totalTaught},${row.totalHours} Jam,${row.substitutedOutSessions}\n`;
+      });
+    }
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Laporan_Absensi_${reportType.toUpperCase()}_${monthNames[reportMonth - 1]}_${reportYear}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Handle User Modal
+  const handleOpenUserModal = (user?: User) => {
+    if (user) {
+      setEditingUser(user);
+      setUserFormData({
+        name: user.name,
+        role: user.role,
+        email: user.email,
+        phone: user.phone,
+        title: user.title,
+        specialization: user.specialization || '',
+        studentId: user.studentId
+      });
+    } else {
+      setEditingUser(null);
+      setUserFormData({
+        name: '',
+        role: 'guru',
+        email: '',
+        phone: '0812-',
+        title: 'Terapis Klinis',
+        specialization: 'Sensori Integrasi (SI)'
+      });
+    }
+    setIsUserModalOpen(true);
+  };
+
+  const handleSaveUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userFormData.name.trim()) return;
+
+    const colors = ['bg-indigo-600', 'bg-blue-600', 'bg-emerald-600', 'bg-amber-600', 'bg-teal-600', 'bg-cyan-600'];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+    if (editingUser) {
+      updateUser({
+        ...editingUser,
+        ...userFormData,
+        avatarColor: editingUser.avatarColor || randomColor
+      });
+    } else {
+      addUser({
+        ...userFormData,
+        avatarColor: randomColor
+      });
+    }
+    setIsUserModalOpen(false);
+  };
+
+  return (
+    <div className="space-y-6">
+
+      {/* TAB 1: LAPORAN & CETAK ABSENSI BULANAN */}
+      {activeTab === 'laporan' && (
+        <div className="space-y-6">
+          
+          {/* Controls Bar (Hidden during print) */}
+          <div className="no-print bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Printer className="w-5 h-5 text-indigo-600" />
+                  Laporan & Cetak Absensi Bulanan (Yayasan)
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Rekapitulasi resmi absensi siswa & pengampu terapi siap cetak dokumen PDF dengan kop surat yayasan
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Export CSV</span>
+                </button>
+
+                <button
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-2 transition-colors"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Cetak / Simpan PDF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tipe Rekapitulasi</label>
+                <div className="flex rounded-lg p-0.5 bg-slate-100">
+                  <button
+                    onClick={() => setReportType('siswa')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                      reportType === 'siswa' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Rekap Siswa
+                  </button>
+                  <button
+                    onClick={() => setReportType('guru')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                      reportType === 'guru' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Rekap Guru / Terapis
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Pilih Bulan</label>
+                <select
+                  value={reportMonth}
+                  onChange={(e) => setReportMonth(Number(e.target.value))}
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white"
+                >
+                  {monthNames.map((name, idx) => (
+                    <option key={name} value={idx + 1}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Pilih Tahun</label>
+                <select
+                  value={reportYear}
+                  onChange={(e) => setReportYear(Number(e.target.value))}
+                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white"
+                >
+                  <option value={2026}>2026 (Tahun Berjalan)</option>
+                  <option value={2025}>2025</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* PRINT-READY OFFICIAL REPORT DOCUMENT */}
+          <div className="bg-white rounded-2xl border border-slate-300 p-6 sm:p-10 shadow-sm print:p-0 print:border-none print:shadow-none print:rounded-none">
+            
+            {/* Kop Surat Yayasan (Official Letterhead) */}
+            <div className="border-b-4 border-slate-900 pb-4 mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-900 text-white flex items-center justify-center font-bold text-2xl shrink-0 print:border print:border-black">
+                  <Sparkles className="w-8 h-8 text-indigo-300" />
+                </div>
+                <div className="flex-1">
+                  <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 uppercase">
+                    YAYASAN PELITA BINTANG INKLUSI
+                  </h1>
+                  <h2 className="text-sm sm:text-base font-bold text-indigo-950 uppercase tracking-wide">
+                    KLINIK TERAPI TUMBUH KEMBANG & PUSAT LAYANAN AUTISMA TERAPINA
+                  </h2>
+                  <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                    SK Kemenkumham RI No. AHU-0014298.AH.01.04 | Izin Operasional Dinas Pendidikan & Kesehatan No. 421.9/108/DISDIK<br />
+                    Jl. Kartini No. 45, Kebayoran Baru, Jakarta Selatan 12180 | Telp: (021) 7289-4011 | Email: sekretariat@terapina.org
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Document Title & Period */}
+            <div className="text-center my-6">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 underline uppercase tracking-wider">
+                {reportType === 'siswa' 
+                  ? 'REKAPITULASI LAPORAN ABSENSI & MONITORING TERAPI SISWA'
+                  : 'REKAPITULASI KEHADIRAN & BEBAN MENGAJAR TERAPIS / GURU'
+                }
+              </h3>
+              <p className="text-xs font-semibold text-slate-600 mt-1 font-mono">
+                Periode: Bulan {monthNames[reportMonth - 1]} {reportYear}
+              </p>
+            </div>
+
+            {/* REPORT TYPE: SISWA */}
+            {reportType === 'siswa' && (
+              <div className="overflow-x-auto print:overflow-visible">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-y-2 border-slate-800 bg-slate-100 text-slate-800 font-bold uppercase text-[11px]">
+                      <th className="py-2.5 px-3 border border-slate-300 text-center w-10">No</th>
+                      <th className="py-2.5 px-3 border border-slate-300">Nama Siswa</th>
+                      <th className="py-2.5 px-3 border border-slate-300">Program Terapi</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-center">Status</th>
+                      <th className="py-2.5 px-2 border border-slate-300 text-center">Total Sesi</th>
+                      <th className="py-2.5 px-2 border border-slate-300 text-center text-emerald-800">Hadir</th>
+                      <th className="py-2.5 px-2 border border-slate-300 text-center text-blue-800">Sakit</th>
+                      <th className="py-2.5 px-2 border border-slate-300 text-center text-amber-800">Izin</th>
+                      <th className="py-2.5 px-2 border border-slate-300 text-center text-rose-800">Alpha</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-right">Jam Terapi</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-right">% Hadir</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-300">
+                    {studentStats.map((item, index) => (
+                      <tr key={item.student.id} className="hover:bg-slate-50 print:hover:bg-transparent">
+                        <td className="py-2 px-3 border border-slate-300 text-center font-mono">{index + 1}</td>
+                        <td className="py-2 px-3 border border-slate-300 font-semibold text-slate-900">
+                          {item.student.name}
+                        </td>
+                        <td className="py-2 px-3 border border-slate-300">{item.student.therapyType}</td>
+                        <td className="py-2 px-3 border border-slate-300 text-center">
+                          <span className={`text-[10px] font-bold uppercase ${
+                            item.status === 'active' ? 'text-emerald-700' : item.status === 'frozen' ? 'text-blue-700' : 'text-slate-500'
+                          }`}>
+                            {item.status === 'frozen' ? 'Dibekukan' : item.status}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 border border-slate-300 text-center font-mono tabular-nums">{item.totalSessions}</td>
+                        <td className="py-2 px-2 border border-slate-300 text-center font-mono font-bold text-emerald-800 tabular-nums">{item.hadir}</td>
+                        <td className="py-2 px-2 border border-slate-300 text-center font-mono tabular-nums">{item.sakit}</td>
+                        <td className="py-2 px-2 border border-slate-300 text-center font-mono tabular-nums">{item.izin}</td>
+                        <td className="py-2 px-2 border border-slate-300 text-center font-mono text-rose-700 tabular-nums">{item.alpha}</td>
+                        <td className="py-2 px-3 border border-slate-300 text-right font-mono tabular-nums">{item.totalHours} Jam</td>
+                        <td className="py-2 px-3 border border-slate-300 text-right font-mono font-bold tabular-nums">
+                          {item.attendancePercentage}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-800 bg-slate-100 font-bold text-slate-900">
+                      <td colSpan={4} className="py-2.5 px-3 border border-slate-300 text-center">
+                        TOTAL AKUMULASI KLINIK
+                      </td>
+                      <td className="py-2.5 px-2 border border-slate-300 text-center font-mono tabular-nums">
+                        {studentStats.reduce((acc, curr) => acc + curr.totalSessions, 0)}
+                      </td>
+                      <td className="py-2.5 px-2 border border-slate-300 text-center font-mono text-emerald-800 tabular-nums">
+                        {studentStats.reduce((acc, curr) => acc + curr.hadir, 0)}
+                      </td>
+                      <td className="py-2.5 px-2 border border-slate-300 text-center font-mono tabular-nums">
+                        {studentStats.reduce((acc, curr) => acc + curr.sakit, 0)}
+                      </td>
+                      <td className="py-2.5 px-2 border border-slate-300 text-center font-mono tabular-nums">
+                        {studentStats.reduce((acc, curr) => acc + curr.izin, 0)}
+                      </td>
+                      <td className="py-2.5 px-2 border border-slate-300 text-center font-mono text-rose-700 tabular-nums">
+                        {studentStats.reduce((acc, curr) => acc + curr.alpha, 0)}
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-right font-mono tabular-nums">
+                        {studentStats.reduce((acc, curr) => acc + curr.totalHours, 0)} Jam
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-right font-mono tabular-nums">
+                        {Math.round(
+                          (studentStats.reduce((acc, curr) => acc + curr.hadir, 0) /
+                            (studentStats.reduce((acc, curr) => acc + curr.evaluatedSessions, 0) || 1)) * 100
+                        )}%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+
+            {/* REPORT TYPE: GURU / TERAPIS */}
+            {reportType === 'guru' && (
+              <div className="overflow-x-auto print:overflow-visible">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-y-2 border-slate-800 bg-slate-100 text-slate-800 font-bold uppercase text-[11px]">
+                      <th className="py-2.5 px-3 border border-slate-300 text-center w-10">No</th>
+                      <th className="py-2.5 px-3 border border-slate-300">Nama Guru / Terapis</th>
+                      <th className="py-2.5 px-3 border border-slate-300">Spesialisasi Bidang</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-center">Sesi Terjadwal Utama</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-center text-amber-800">Sesi Sebagai Pengganti</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-center text-emerald-800">Total Sesi Diampu</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-center text-rose-800">Izin Terganti</th>
+                      <th className="py-2.5 px-3 border border-slate-300 text-right">Estimasi Jam Kerja</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-300">
+                    {teacherStats.map((item, index) => (
+                      <tr key={item.teacher.id} className="hover:bg-slate-50 print:hover:bg-transparent">
+                        <td className="py-2 px-3 border border-slate-300 text-center font-mono">{index + 1}</td>
+                        <td className="py-2 px-3 border border-slate-300 font-semibold text-slate-900">
+                          {item.teacher.name}
+                        </td>
+                        <td className="py-2 px-3 border border-slate-300 text-slate-700">
+                          {item.teacher.specialization || item.teacher.title}
+                        </td>
+                        <td className="py-2 px-3 border border-slate-300 text-center font-mono tabular-nums">{item.primaryCount} Sesi</td>
+                        <td className="py-2 px-3 border border-slate-300 text-center font-mono font-bold text-amber-800 tabular-nums">
+                          {item.substituteCount} Sesi
+                        </td>
+                        <td className="py-2 px-3 border border-slate-300 text-center font-mono font-bold text-emerald-800 tabular-nums">
+                          {item.totalTaught} Sesi
+                        </td>
+                        <td className="py-2 px-3 border border-slate-300 text-center font-mono text-rose-700 tabular-nums">
+                          {item.substitutedOutSessions} Sesi
+                        </td>
+                        <td className="py-2 px-3 border border-slate-300 text-right font-mono font-bold tabular-nums">
+                          {item.totalHours} Jam
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-800 bg-slate-100 font-bold text-slate-900">
+                      <td colSpan={3} className="py-2.5 px-3 border border-slate-300 text-center">
+                        TOTAL AKUMULASI JAM TERAPIS
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-center font-mono tabular-nums">
+                        {teacherStats.reduce((acc, curr) => acc + curr.primaryCount, 0)} Sesi
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-center font-mono text-amber-800 tabular-nums">
+                        {teacherStats.reduce((acc, curr) => acc + curr.substituteCount, 0)} Sesi
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-center font-mono text-emerald-800 tabular-nums">
+                        {teacherStats.reduce((acc, curr) => acc + curr.totalTaught, 0)} Sesi
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-center font-mono text-rose-700 tabular-nums">
+                        {teacherStats.reduce((acc, curr) => acc + curr.substitutedOutSessions, 0)} Sesi
+                      </td>
+                      <td className="py-2.5 px-3 border border-slate-300 text-right font-mono tabular-nums">
+                        {teacherStats.reduce((acc, curr) => acc + curr.totalHours, 0)} Jam
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+
+            {/* Official Signature Lines (Print Layout) */}
+            <div className="mt-12 pt-8 print:mt-16 print:pt-6 print:break-inside-avoid">
+              <div className="flex justify-between items-start text-xs text-slate-800 px-6">
+                
+                {/* Kepala Sekolah Signature */}
+                <div className="text-center w-64">
+                  <p className="text-slate-600">Mengetahui & Memverifikasi,</p>
+                  <p className="font-bold text-slate-900 mt-1">Kepala Sekolah & Koordinator Klinis</p>
+                  <div className="h-24 flex items-center justify-center">
+                    <span className="text-[11px] text-slate-400 italic">[Tanda Tangan & Cap Digital]</span>
+                  </div>
+                  <p className="font-bold text-slate-900 underline">Ahmad Fauzi, S.Pd, M.Ed</p>
+                  <p className="text-[11px] text-slate-600 font-mono">NIPK: 19820412.201001.1.004</p>
+                </div>
+
+                {/* Yayasan Signature */}
+                <div className="text-center w-64">
+                  <p className="text-slate-600">Jakarta, 28 Oktober 2026</p>
+                  <p className="font-bold text-slate-900 mt-1">Ketua Yayasan Pelita Bintang Inklusi</p>
+                  <div className="h-24 flex items-center justify-center">
+                    <span className="text-[11px] text-slate-400 italic">[Tanda Tangan & Cap Resmi Yayasan]</span>
+                  </div>
+                  <p className="font-bold text-slate-900 underline">Dr. Hj. Nurul Hidayati, M.Psi</p>
+                  <p className="text-[11px] text-slate-600 font-mono">Ketua Pengurus Yayasan</p>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: MANAJEMEN USER (AKUN KEPALA SEKOLAH, GURU, MURID) */}
+      {activeTab === 'users' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-600" />
+                Manajemen Pengguna Sistem (User Management)
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Kelola hak akses dan akun Kepala Sekolah, Guru / Terapis, serta Wali Murid
+              </p>
+            </div>
+
+            <button
+              onClick={() => handleOpenUserModal()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Tambah User Baru</span>
+            </button>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                <tr>
+                  <th className="px-4 py-3">Nama Pengguna</th>
+                  <th className="px-4 py-3">Peran / Role</th>
+                  <th className="px-4 py-3">Jabatan & Spesialisasi</th>
+                  <th className="px-4 py-3">Kontak Email / Telp</th>
+                  <th className="px-4 py-3 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {users.map((user) => (
+                  <tr key={user.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white text-xs ${user.avatarColor}`}>
+                          {user.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{user.name}</p>
+                          <span className="text-[11px] text-slate-500 font-mono">{user.id}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${
+                        user.role === 'yayasan'
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                          : user.role === 'kepala_sekolah'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : user.role === 'guru'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                      }`}>
+                        {user.role.toUpperCase()}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <p className="text-slate-800 font-medium">{user.title}</p>
+                      {user.specialization && (
+                        <span className="text-[11px] text-slate-500">{user.specialization}</span>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <p className="text-slate-800 font-mono text-[11px]">{user.email}</p>
+                      <p className="text-[11px] text-slate-500 font-mono tabular-nums">{user.phone}</p>
+                    </td>
+
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => handleOpenUserModal(user)}
+                          className="p-1.5 text-slate-600 hover:text-blue-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                          title="Edit User"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        {user.role !== 'yayasan' && (
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Hapus akun ${user.name}?`)) {
+                                deleteUser(user.id);
+                              }
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 border border-slate-200 rounded-lg hover:bg-rose-50"
+                            title="Hapus User"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: TAMBAH / EDIT USER */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-600" />
+                {editingUser ? 'Edit Akun Pengguna' : 'Tambah Akun Baru'}
+              </h3>
+              <button 
+                onClick={() => setIsUserModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveUser} className="mt-4 space-y-3.5 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Nama Lengkap & Gelar *</label>
+                <input
+                  type="text"
+                  required
+                  value={userFormData.name}
+                  onChange={(e) => setUserFormData({ ...userFormData, name: e.target.value })}
+                  placeholder="Contoh: Kiky Amanda, S.Tr.Kes"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Peran / Role *</label>
+                <select
+                  value={userFormData.role}
+                  onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as UserRole })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                >
+                  <option value="guru">Guru / Terapis</option>
+                  <option value="kepala_sekolah">Kepala Sekolah</option>
+                  <option value="murid">Wali Murid</option>
+                  <option value="yayasan">Yayasan (Super Admin)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Jabatan Resmi *</label>
+                <input
+                  type="text"
+                  required
+                  value={userFormData.title}
+                  onChange={(e) => setUserFormData({ ...userFormData, title: e.target.value })}
+                  placeholder="Contoh: Terapis Sensori Integrasi"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              {userFormData.role === 'guru' && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Spesialisasi Bidang Terapi</label>
+                  <input
+                    type="text"
+                    value={userFormData.specialization}
+                    onChange={(e) => setUserFormData({ ...userFormData, specialization: e.target.value })}
+                    placeholder="Contoh: Sensori Integrasi / Terapi Wicara"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={userFormData.email}
+                    onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+                    placeholder="nama@terapina.org"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">No. WhatsApp</label>
+                  <input
+                    type="text"
+                    value={userFormData.phone}
+                    onChange={(e) => setUserFormData({ ...userFormData, phone: e.target.value })}
+                    placeholder="0812-xxxx"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsUserModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  Simpan Akun
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};

@@ -1,0 +1,6 @@
+{
+  "name": "TERAPINA - Sistem Manajemen Penjadwalan & Absensi Terapi Siswa",
+  "description": "Sistem Manajemen Penjadwalan & Absensi Terapi Siswa Terintegrasi dengan 4 Role (Yayasan, Kepala Sekolah, Guru/Terapis, Murid/Wali)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
