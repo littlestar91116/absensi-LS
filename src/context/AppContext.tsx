@@ -38,8 +38,8 @@ interface AppContextType {
   logout: () => void;
   
   // Super Admin: User Management & Freeze
-  addUser: (userData: Omit<User, 'id'>) => void;
-  updateUser: (userData: User) => void;
+  addUser: (userData: Omit<User, 'id'>) => User;
+  updateUser: (userData: User) => User;
   deleteUser: (userId: string) => void;
   toggleFreezeUser: (userId: string, reason?: string) => void;
 
@@ -70,6 +70,7 @@ interface AppContextType {
   approveScheduleProposal: (proposalId: string, reviewNote?: string) => void;
   rejectScheduleProposal: (proposalId: string, reviewNote: string) => void;
   deleteSchedule: (scheduleId: string) => void;
+  addSession: (sessionData: Omit<Session, 'id'>) => Session;
   
   // Substitute Management
   assignSubstitute: (sessionId: string, substituteTeacherId: string, reason: string) => void;
@@ -89,10 +90,39 @@ const STORAGE_KEY = 'terapina_v2_store';
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Load initial users
+  // Load initial users with automatic repair and synchronization
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY}_users`);
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    if (!saved) return INITIAL_USERS;
+    try {
+      const parsed: User[] = JSON.parse(saved);
+      // Ensure all users have valid sanitized fields and defaults
+      const repaired = parsed.map(u => {
+        const cleanName = (u.name || 'Pengguna').trim();
+        const rawEmail = (u.email || '').trim().toLowerCase();
+        const finalEmail = rawEmail.includes('@')
+          ? rawEmail
+          : rawEmail.length > 0
+            ? `${rawEmail}@littlestar.sch.id`
+            : `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@littlestar.sch.id`;
+
+        return {
+          ...u,
+          name: cleanName,
+          email: finalEmail,
+          password: (u.password && u.password.trim()) ? u.password.trim() : 'password123',
+          status: u.status || 'active'
+        };
+      });
+
+      // Also ensure initial base users exist so user is never locked out
+      const missingInitial = INITIAL_USERS.filter(
+        initU => !repaired.some(r => r.id === initU.id || r.email.toLowerCase() === initU.email.toLowerCase())
+      );
+      return [...repaired, ...missingInitial];
+    } catch {
+      return INITIAL_USERS;
+    }
   });
 
   // Current logged in user (null by default so initial view is Login Screen)
@@ -177,23 +207,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(`${STORAGE_KEY}_viewPermissions`, JSON.stringify(viewPermissions));
   }, [viewPermissions]);
 
-  // Auth: Login with credentials
+  // Auth: Flexible & Robust Login with credentials
   const login = (email: string, password?: string): { success: boolean; message?: string } => {
-    const query = email.trim().toLowerCase();
-    const foundUser = users.find(
-      u => u.email.toLowerCase() === query || 
-           u.email.toLowerCase().split('@')[0] === query ||
-           u.id.toLowerCase() === query ||
-           u.name.toLowerCase() === query
-    );
-
-    if (!foundUser) {
-      return { success: false, message: 'Email atau ID Pengguna tidak terdaftar dalam sistem.' };
+    if (!email || !email.trim()) {
+      return { success: false, message: 'Silakan masukkan email atau ID Pengguna Anda.' };
     }
 
-    // Check password if provided and user has one
-    if (password && foundUser.password && foundUser.password !== password) {
-      return { success: false, message: 'Kata sandi tidak sesuai.' };
+    const query = email.trim().toLowerCase();
+    const queryWithoutDomain = query.split('@')[0];
+    const inputPass = (password || '').trim();
+
+    const foundUser = users.find(u => {
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uEmailUsername = uEmail.split('@')[0];
+      const uId = (u.id || '').trim().toLowerCase();
+      const uName = (u.name || '').trim().toLowerCase();
+
+      return (
+        uEmail === query ||
+        uEmailUsername === query ||
+        uEmailUsername === queryWithoutDomain ||
+        uId === query ||
+        uName === query ||
+        (!query.includes('@') && uEmail === `${query}@littlestar.sch.id`) ||
+        (query.includes('@') && !uEmail.includes('@') && `${uEmail}@littlestar.sch.id` === query)
+      );
+    });
+
+    if (!foundUser) {
+      return { 
+        success: false, 
+        message: `Akun "${email}" tidak ditemukan. Pastikan email atau username yang dimasukkan sesuai akun yang terdaftar di Little Star Learning Center.` 
+      };
     }
 
     // Check account status: Frozen accounts CANNOT log in!
@@ -206,6 +251,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (foundUser.status === 'inactive') {
       return { success: false, message: 'Akun ini dalam status Non-Aktif.' };
+    }
+
+    // Check password
+    if (!inputPass) {
+      return { success: false, message: 'Kata sandi wajib diisi.' };
+    }
+
+    const userPass = (foundUser.password || 'password123').trim();
+    if (userPass !== inputPass) {
+      return { 
+        success: false, 
+        message: 'Kata sandi tidak sesuai. Jika belum diubah, gunakan kata sandi default "password123".' 
+      };
     }
 
     setCurrentUser(foundUser);
@@ -229,21 +287,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Super Admin: User Management & Freeze
-  const addUser = (userData: Omit<User, 'id'>) => {
+  const addUser = (userData: Omit<User, 'id'>): User => {
+    const cleanName = (userData.name || 'Pengguna Baru').trim();
+    const rawEmail = (userData.email || '').trim().toLowerCase();
+    const finalEmail = rawEmail.includes('@')
+      ? rawEmail
+      : rawEmail.length > 0
+        ? `${rawEmail}@littlestar.sch.id`
+        : `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@littlestar.sch.id`;
+
     const newUser: User = {
       ...userData,
-      id: `usr-${Date.now().toString().slice(-4)}`,
+      id: `usr-${Date.now().toString().slice(-6)}`,
+      name: cleanName,
+      email: finalEmail,
+      password: (userData.password || 'password123').trim() || 'password123',
       status: userData.status || 'active',
-      password: userData.password || 'password123'
+      phone: (userData.phone || '0812-xxxx').trim(),
+      title: (userData.title || (userData.role === 'guru' ? 'Terapis Klinis' : userData.role === 'murid' ? 'Wali Murid' : 'Staf')).trim(),
+      specialization: userData.specialization ? userData.specialization.trim() : undefined,
+      studentId: userData.studentId
     };
+
     setUsers(prev => [...prev, newUser]);
+    return newUser;
   };
 
-  const updateUser = (userData: User) => {
-    setUsers(prev => prev.map(u => u.id === userData.id ? userData : u));
-    if (currentUser?.id === userData.id) {
-      setCurrentUser(userData);
+  const updateUser = (userData: User): User => {
+    const cleanName = (userData.name || 'Pengguna').trim();
+    const rawEmail = (userData.email || '').trim().toLowerCase();
+    const finalEmail = rawEmail.includes('@')
+      ? rawEmail
+      : rawEmail.length > 0
+        ? `${rawEmail}@littlestar.sch.id`
+        : userData.email;
+
+    const sanitizedUser: User = {
+      ...userData,
+      name: cleanName,
+      email: finalEmail,
+      password: (userData.password || 'password123').trim() || 'password123',
+      status: userData.status || 'active',
+      phone: (userData.phone || '').trim(),
+      title: (userData.title || '').trim(),
+      specialization: userData.specialization ? userData.specialization.trim() : undefined,
+      studentId: userData.studentId
+    };
+
+    setUsers(prev => prev.map(u => u.id === sanitizedUser.id ? sanitizedUser : u));
+    if (currentUser?.id === sanitizedUser.id) {
+      setCurrentUser(sanitizedUser);
     }
+    return sanitizedUser;
   };
 
   const deleteUser = (userId: string) => {
@@ -325,6 +420,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStudents(prev => prev.filter(s => s.id !== studentId));
     setSchedules(prev => prev.filter(s => s.studentId !== studentId));
     setSessions(prev => prev.filter(s => s.studentId !== studentId));
+    setAttendances(prev => prev.filter(a => a.studentId !== studentId));
+    setScheduleProposals(prev => prev.filter(p => p.studentId !== studentId));
   };
 
   const toggleFreezeStudent = (studentId: string, reason?: string) => {
@@ -492,6 +589,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSchedules(prev => prev.filter(s => s.id !== scheduleId));
   };
 
+  const addSession = (sessionData: Omit<Session, 'id'>): Session => {
+    const newSession: Session = {
+      ...sessionData,
+      id: `ses-${Date.now().toString().slice(-6)}`
+    };
+    setSessions(prev => [newSession, ...prev]);
+    return newSession;
+  };
+
   // Substitute teacher assignment
   const assignSubstitute = (sessionId: string, substituteTeacherId: string, reason: string) => {
     setSessions(prev => prev.map(s => {
@@ -615,6 +721,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveScheduleProposal,
         rejectScheduleProposal,
         deleteSchedule,
+        addSession,
         assignSubstitute,
         approveLeaveRequest,
         rejectLeaveRequest,

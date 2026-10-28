@@ -24,12 +24,12 @@ export const LoginScreen: React.FC = () => {
     setIsLoading(true);
 
     setTimeout(() => {
-      const result = login(emailInput, passwordInput);
+      const result = login(emailInput.trim(), passwordInput.trim());
       if (!result.success) {
         setErrorMessage(result.message || 'Login gagal. Periksa kembali email dan kata sandi Anda.');
       }
       setIsLoading(false);
-    }, 300);
+    }, 250);
   };
 
   return (

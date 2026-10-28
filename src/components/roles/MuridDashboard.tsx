@@ -25,10 +25,30 @@ export const MuridDashboard: React.FC<MuridDashboardProps> = ({ activeTab }) => 
   if (!currentUser) return null;
 
   // Find linked student for this parent
-  const parentStudent = students.find(s => s.id === currentUser.studentId) || students[0];
+  const parentStudent = (currentUser.studentId ? students.find(s => s.id === currentUser.studentId) : null) || students[0];
   const [selectedStudentId, setSelectedStudentId] = useState<string>(parentStudent ? parentStudent.id : '');
 
   const activeStudent = students.find(s => s.id === selectedStudentId) || parentStudent;
+
+  if (!activeStudent) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4 max-w-lg mx-auto my-8">
+        <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto">
+          <HeartHandshake className="w-6 h-6" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Akun Wali Murid Aktif</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Akun Anda berhasil masuk. Saat ini profil ananda belum ditautkan ke akun ini oleh Administrator Yayasan.
+          </p>
+        </div>
+        <p className="text-[11px] text-cyan-700 bg-cyan-50 p-2.5 rounded-lg border border-cyan-200 font-medium">
+          Silakan hubungi pihak Yayasan atau Kepala Sekolah Little Star Learning Center agar dapat menautkan akun ini ke profil terapi siswa terkait.
+        </p>
+      </div>
+    );
+  }
+
   const isFrozen = activeStudent.status === 'frozen';
 
   // Filter student sessions & attendances

@@ -1174,8 +1174,12 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                 >
                   <option value="">-- Pilih Guru / Terapis --</option>
                   {teachers.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} — Spesialisasi: {t.specialization || t.title}
+                    <option 
+                      key={t.id} 
+                      value={t.id}
+                      disabled={t.status === 'frozen'}
+                    >
+                      {t.name} {t.status === 'frozen' ? '— [DIBEKUKAN / TIDAK DAPAT DITUGASKAN]' : `— Spesialisasi: ${t.specialization || t.title}`}
                     </option>
                   ))}
                 </select>
@@ -1345,8 +1349,12 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                 >
                   {teachers.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.specialization || t.title})
+                    <option 
+                      key={t.id} 
+                      value={t.id}
+                      disabled={t.status === 'frozen' || t.name === substituteModalData.teacherName}
+                    >
+                      {t.name} {t.status === 'frozen' ? '— [DIBEKUKAN]' : t.name === substituteModalData.teacherName ? '— [Guru yang Sedang Izin]' : `(${t.specialization || t.title})`}
                     </option>
                   ))}
                 </select>

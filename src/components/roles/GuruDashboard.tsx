@@ -15,7 +15,8 @@ import {
   X,
   History,
   Building,
-  AlertCircle
+  AlertCircle,
+  Snowflake
 } from 'lucide-react';
 
 interface GuruDashboardProps {
@@ -30,7 +31,8 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ activeTab }) => {
     attendances, 
     submitAttendance, 
     submitLeaveRequest,
-    leaveRequests 
+    leaveRequests,
+    addSession
   } = useApp();
 
   if (!currentUser) return null;
@@ -152,6 +154,49 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ activeTab }) => {
         </div>
       </div>
 
+      {/* New Teacher Notice: If no sessions are assigned yet */}
+      {teacherSessions.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-amber-950 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-amber-900">
+                Akun Terapis Anda Aktif & Siap Digunakan!
+              </h3>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Saat ini Kepala Sekolah belum mengalokasikan jadwal sesi murid untuk Anda. Anda dapat membuat 1 sesi latihan terapi hari ini untuk mencoba fitur input absensi, catatan evaluasi, dan pengajuan izin.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const activeStudent = students.find(s => s.status === 'active') || students[0];
+              if (!activeStudent) {
+                alert('Belum ada data siswa aktif.');
+                return;
+              }
+              addSession({
+                scheduleId: 'sch-new',
+                studentId: activeStudent.id,
+                date: '2026-10-28',
+                dayName: 'Rabu',
+                timeSlot: '09:00 - 10:00',
+                room: 'Ruang SI Sakura (Lantai 1)',
+                primaryTeacherId: currentUser.id,
+                isSubstituted: false,
+                status: 'scheduled'
+              });
+              alert(`Sesi uji coba berhasil dibuat dengan ananda ${activeStudent.name}! Anda sekarang dapat mengisi absensi dan catatan terapi.`);
+            }}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs whitespace-nowrap self-start md:self-center transition-colors cursor-pointer"
+          >
+            ⚡ Buat 1 Sesi Terapi Uji Coba Hari Ini
+          </button>
+        </div>
+      )}
+
       {/* TAB 1: JADWAL MENGAJAR */}
       {activeTab === 'jadwal_mengajar' && (
         <div className="space-y-6">
@@ -205,7 +250,15 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ activeTab }) => {
                             </span>
                           )}
 
-                          <h4 className="font-bold text-slate-900 text-base">{student?.name}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-900 text-base">{student?.name}</h4>
+                            {student?.status === 'frozen' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                <Snowflake className="w-3 h-3 text-blue-600" />
+                                DIBEKUKAN (FREEZE)
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-600">
                             {student?.therapyType} · {student?.age}
                           </p>
@@ -320,7 +373,14 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ activeTab }) => {
                         </td>
 
                         <td className="px-4 py-3">
-                          <p className="font-semibold text-slate-900">{student?.name}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-semibold text-slate-900">{student?.name}</p>
+                            {student?.status === 'frozen' && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-700">
+                                FREEZE
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[11px] text-slate-500">{student?.therapyType}</span>
                         </td>
 
