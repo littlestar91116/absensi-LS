@@ -33,6 +33,8 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ activeTab }) => {
     leaveRequests 
   } = useApp();
 
+  if (!currentUser) return null;
+
   // Modal Attendance State
   const [selectedSessionForAttendance, setSelectedSessionForAttendance] = useState<Session | null>(null);
   const [attendanceForm, setAttendanceForm] = useState<{
@@ -126,7 +128,7 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ activeTab }) => {
       <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-xs font-semibold uppercase tracking-wider text-emerald-200">
-            Klinik Terapi Tumbuh Kembang Terapina
+            Little Star Learning Center
           </span>
           <h2 className="text-xl font-bold mt-0.5">{currentUser.name}</h2>
           <p className="text-xs text-emerald-100 flex items-center gap-2 mt-1">

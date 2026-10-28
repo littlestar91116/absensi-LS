@@ -6,13 +6,12 @@ import {
   GraduationCap, 
   UserCheck, 
   HeartHandshake, 
-  ChevronDown, 
-  RotateCcw, 
   ShieldCheck, 
   Menu, 
   X,
-  Sparkles,
-  Info
+  Info,
+  LogOut,
+  SlidersHorizontal
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -21,105 +20,110 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => {
-  const { currentUser, users, switchRole, resetToDefaultData } = useApp();
-  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const { currentUser, logout, hasPermission } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showRoleInfo, setShowRoleInfo] = useState(false);
+
+  if (!currentUser) return null;
 
   const roleLabels: Record<UserRole, { label: string; badge: string; icon: React.ReactNode; color: string }> = {
     yayasan: {
       label: 'Yayasan (Super Admin)',
       badge: 'Super Admin',
-      icon: <Building2 className="w-4 h-4 text-indigo-600" />,
+      icon: <Building2 className="w-3.5 h-3.5 text-indigo-600" />,
       color: 'bg-indigo-50 border-indigo-200 text-indigo-700'
     },
     kepala_sekolah: {
       label: 'Kepala Sekolah',
       badge: 'Admin Operasional',
-      icon: <GraduationCap className="w-4 h-4 text-blue-600" />,
+      icon: <GraduationCap className="w-3.5 h-3.5 text-blue-600" />,
       color: 'bg-blue-50 border-blue-200 text-blue-700'
     },
     guru: {
       label: 'Guru / Terapis',
       badge: 'Tenaga Klinis',
-      icon: <UserCheck className="w-4 h-4 text-emerald-600" />,
+      icon: <UserCheck className="w-3.5 h-3.5 text-emerald-600" />,
       color: 'bg-emerald-50 border-emerald-200 text-emerald-700'
     },
     murid: {
       label: 'Murid / Wali Murid',
       badge: 'Read-Only',
-      icon: <HeartHandshake className="w-4 h-4 text-cyan-600" />,
+      icon: <HeartHandshake className="w-3.5 h-3.5 text-cyan-600" />,
       color: 'bg-cyan-50 border-cyan-200 text-cyan-700'
     }
   };
 
-  const roleTabs: Record<UserRole, Array<{ id: string; label: string }>> = {
+  // Base tabs per role paired with permission keys
+  const roleTabsConfig: Record<UserRole, Array<{ id: string; label: string; permKey: string }>> = {
     yayasan: [
-      { id: 'laporan', label: 'Laporan & Cetak Absensi' },
-      { id: 'users', label: 'Manajemen Akun' },
-      { id: 'siswa', label: 'Data Siswa' },
-      { id: 'jadwal', label: 'Jadwal & Terapis' }
+      { id: 'laporan', label: 'Laporan & Cetak Absensi', permKey: 'perm_laporan' },
+      { id: 'users', label: 'Kelola Akun & Freeze', permKey: 'perm_users' },
+      { id: 'hak_akses', label: 'Hak Akses Tampilan', permKey: 'perm_hak_akses' },
+      { id: 'siswa', label: 'Data Siswa', permKey: 'perm_siswa' },
+      { id: 'jadwal', label: 'Jadwal & Persetujuan', permKey: 'perm_jadwal' }
     ],
     kepala_sekolah: [
-      { id: 'siswa', label: 'Data Siswa' },
-      { id: 'jadwal', label: 'Atur Jadwal Bulanan' },
-      { id: 'pengganti', label: 'Penugasan Pengganti' },
-      { id: 'laporan', label: 'Rekap Absensi' }
+      { id: 'siswa', label: 'Data Siswa', permKey: 'perm_siswa' },
+      { id: 'jadwal', label: 'Atur Jadwal (Izin Yayasan)', permKey: 'perm_jadwal' },
+      { id: 'pengganti', label: 'Penugasan Pengganti', permKey: 'perm_pengganti' },
+      { id: 'laporan', label: 'Rekap Absensi', permKey: 'perm_laporan' }
     ],
     guru: [
-      { id: 'jadwal_mengajar', label: 'Jadwal Terapi' },
-      { id: 'absensi_input', label: 'Input Absensi & Catatan' },
-      { id: 'izin_guru', label: 'Pengajuan Izin Sesi' },
-      { id: 'riwayat_catatan', label: 'Riwayat Evaluasi' }
+      { id: 'jadwal_mengajar', label: 'Jadwal Terapi', permKey: 'perm_jadwal_mengajar' },
+      { id: 'absensi_input', label: 'Input Absensi & Catatan', permKey: 'perm_absensi_input' },
+      { id: 'izin_guru', label: 'Pengajuan Izin Sesi', permKey: 'perm_izin_guru' },
+      { id: 'riwayat_catatan', label: 'Riwayat Evaluasi', permKey: 'perm_absensi_input' }
     ],
     murid: [
-      { id: 'wali_jadwal', label: 'Jadwal Terapi Anak' },
-      { id: 'wali_perkembangan', label: 'Catatan Perkembangan & PR' }
+      { id: 'wali_jadwal', label: 'Jadwal Terapi Anak', permKey: 'perm_wali_jadwal' },
+      { id: 'wali_perkembangan', label: 'Catatan Perkembangan & PR', permKey: 'perm_wali_evaluasi' }
     ]
   };
 
-  const handleRoleSelect = (user: typeof users[0]) => {
-    switchRole(user.role, user.id);
-    setRoleDropdownOpen(false);
-    // Set default tab for the chosen role
-    const defaultTab = roleTabs[user.role][0]?.id;
-    if (defaultTab) {
-      setCurrentTab(defaultTab);
-    }
-  };
+  // Filter tabs dynamically based on Super Admin configured View Permissions
+  const availableTabs = roleTabsConfig[currentUser.role]?.filter(
+    tab => hasPermission(tab.permKey)
+  ) || [];
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs no-print">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           
-          {/* Brand Zone */}
+          {/* Brand Zone with Official Little Star Logo */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-lg shadow-sm">
-              <Sparkles className="w-5 h-5 text-blue-200" />
+            <div className="h-10 w-auto flex items-center justify-center">
+              <img 
+                src="/assets/aistudio/Desain_tanpa_judul_20250712_130635_0000__1__c8a27306.png" 
+                alt="Logo Little Star"
+                className="h-10 w-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xl font-bold tracking-tight text-slate-900">TERAPINA</span>
-                <span className="hidden sm:inline-block text-[11px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-                  Klinik Inklusi
+                <span className="text-base sm:text-lg font-black tracking-tight text-blue-900 leading-tight">
+                  Little Star
+                </span>
+                <span className="hidden sm:inline-block text-[11px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                  Learning Center
                 </span>
               </div>
-              <p className="hidden md:block text-xs text-slate-500">
-                Sistem Manajemen Penjadwalan & Absensi Terapi Siswa
+              <p className="hidden md:block text-[11px] text-slate-500 font-medium leading-none mt-0.5">
+                Sistem Penjadwalan & Absensi Terapi Siswa
               </p>
             </div>
           </div>
 
           {/* Navigation Links (Desktop) */}
           <nav className="hidden lg:flex items-center gap-1">
-            {roleTabs[currentUser.role]?.map((tab) => (
+            {availableTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setCurrentTab(tab.id)}
                 className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap shrink-0 ${
                   currentTab === tab.id
-                    ? 'bg-blue-50 text-blue-700 font-semibold shadow-xs'
+                    ? 'bg-blue-50 text-blue-700 font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
@@ -128,9 +132,21 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
             ))}
           </nav>
 
-          {/* Right Action Zone: Quick Role Switcher & Profile */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Right Action Zone: Active Account Profile & Logout (No Quick Switch for Outsiders) */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             
+            {/* Super Admin Shortcut to View Permissions */}
+            {currentUser.role === 'yayasan' && (
+              <button
+                onClick={() => setCurrentTab('hak_akses')}
+                title="Kelola Matriks Hak Akses Website"
+                className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg font-semibold transition-colors"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Hak Akses Tampilan</span>
+              </button>
+            )}
+
             {/* Role Info Quick Button */}
             <button
               onClick={() => setShowRoleInfo(!showRoleInfo)}
@@ -140,113 +156,39 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
               <Info className="w-4 h-4" />
             </button>
 
-            {/* Reset Demo Data Button */}
+            {/* Authenticated User Badge & Profile */}
+            <div className="flex items-center gap-2.5 px-3 py-1.5 border border-slate-200 rounded-xl bg-slate-50">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-white text-xs ${currentUser.avatarColor}`}>
+                {currentUser.name.charAt(0)}
+              </div>
+              <div className="hidden sm:block text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-900 truncate max-w-[120px]">
+                    {currentUser.name.split(',')[0]}
+                  </span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${roleLabels[currentUser.role].color}`}>
+                    {roleLabels[currentUser.role].badge}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 truncate max-w-[130px]">
+                  {currentUser.email}
+                </div>
+              </div>
+            </div>
+
+            {/* Direct Logout Button */}
             <button
               onClick={() => {
-                if (window.confirm('Reset data simulasi ke data awal contoh? Data baru yang Anda ubah akan kembali ke default.')) {
-                  resetToDefaultData();
+                if (window.confirm('Apakah Anda yakin ingin keluar dari sistem Little Star Learning Center?')) {
+                  logout();
                 }
               }}
-              title="Reset Data Simulasi"
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              title="Keluar dari Akun (Logout)"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Data</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Keluar</span>
             </button>
-
-            {/* Interactive Role Switcher Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-                className="flex items-center gap-2.5 px-3 py-1.5 border border-slate-300 rounded-xl bg-slate-50 hover:bg-white hover:border-blue-400 text-left transition-all shadow-xs"
-              >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white text-xs ${currentUser.avatarColor}`}>
-                  {currentUser.name.charAt(0)}
-                </div>
-                <div className="hidden sm:block text-left">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold text-slate-900 truncate max-w-[130px]">
-                      {currentUser.name.split(',')[0]}
-                    </span>
-                    <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded border ${roleLabels[currentUser.role].color}`}>
-                      {roleLabels[currentUser.role].badge}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 truncate max-w-[150px]">
-                    {currentUser.title}
-                  </div>
-                </div>
-                <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-              </button>
-
-              {/* Dropdown Menu */}
-              {roleDropdownOpen && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-40" 
-                    onClick={() => setRoleDropdownOpen(false)} 
-                  />
-                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 p-2 z-50">
-                    <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        Beralih Pengguna & Hak Akses
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Pilih peran untuk menguji alur kerja sistem
-                      </p>
-                    </div>
-
-                    <div className="max-h-96 overflow-y-auto space-y-1">
-                      {users.map((user) => {
-                        const isCurrent = user.id === currentUser.id;
-                        const roleMeta = roleLabels[user.role];
-                        return (
-                          <button
-                            key={user.id}
-                            onClick={() => handleRoleSelect(user)}
-                            className={`w-full text-left p-2.5 rounded-lg flex items-start gap-3 transition-colors ${
-                              isCurrent 
-                                ? 'bg-blue-50 border border-blue-200' 
-                                : 'hover:bg-slate-50 border border-transparent'
-                            }`}
-                          >
-                            <div className={`w-7 h-7 rounded-md shrink-0 flex items-center justify-center text-white text-xs font-bold mt-0.5 ${user.avatarColor}`}>
-                              {user.name.charAt(0)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className={`text-xs font-semibold truncate ${isCurrent ? 'text-blue-900' : 'text-slate-800'}`}>
-                                  {user.name}
-                                </span>
-                                {isCurrent && (
-                                  <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.2 rounded shrink-0">
-                                    Aktif
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                {roleMeta.icon}
-                                <span className="text-[11px] text-slate-500 truncate">
-                                  {user.title}
-                                </span>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="mt-2 pt-2 border-t border-slate-100 px-2 text-[11px] text-slate-400 flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        Hak Akses Terisolasi
-                      </span>
-                      <span>4 Tingkat Role</span>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
 
             {/* Mobile Menu Button */}
             <button
@@ -262,10 +204,10 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
         {/* Mobile Navigation Drawer */}
         {mobileMenuOpen && (
           <div className="lg:hidden py-3 border-t border-slate-200 space-y-1">
-            <div className="px-3 py-1 text-xs font-medium text-slate-400">
+            <div className="px-3 py-1 text-xs font-semibold text-slate-500">
               Menu Navigasi ({roleLabels[currentUser.role].label})
             </div>
-            {roleTabs[currentUser.role]?.map((tab) => (
+            {availableTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => {
@@ -281,6 +223,18 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
                 {tab.label}
               </button>
             ))}
+            <div className="pt-2 border-t border-slate-100 px-2">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  logout();
+                }}
+                className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Keluar dari Akun (Logout)</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -292,7 +246,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-base">Hierarki Hak Akses 4 Role</h3>
+                <h3 className="font-bold text-slate-900 text-base">Hierarki & Hak Akses Little Star</h3>
               </div>
               <button 
                 onClick={() => setShowRoleInfo(false)}
@@ -302,14 +256,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
               </button>
             </div>
 
-            <div className="mt-4 space-y-3.5 text-xs text-slate-600">
+            <div className="mt-4 space-y-3 text-xs text-slate-600">
               <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
                 <p className="font-semibold text-indigo-900 text-sm flex items-center gap-1.5">
                   <Building2 className="w-4 h-4 text-indigo-600" />
                   1. Yayasan (Super Admin)
                 </p>
                 <p className="mt-1 text-indigo-800">
-                  Akses penuh ke seluruh sistem, manajemen akun pengguna (Kepala Sekolah, Guru, Murid), serta modul resmi <strong>Laporan & Cetak Absensi Bulanan</strong> dengan format PDF/Print kop surat yayasan.
+                  Akses penuh. Mengatur hak akses tampilan website untuk setiap role, menambah/mengedit/menghapus/<strong>membekukan (freeze) akun</strong> pengguna, serta menyetujui perubahan jadwal murid & guru dari Kepala Sekolah.
                 </p>
               </div>
 
@@ -319,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
                   2. Kepala Sekolah (Admin Operasional)
                 </p>
                 <p className="mt-1 text-blue-800">
-                  Manajemen data siswa (termasuk status <strong>Dibekukan/Freeze</strong> yang tidak masuk jadwal), pembagian jadwal bulanan (durasi jam & frekuensi), serta manajemen <strong>Guru Pengganti</strong> saat terapis berhalangan.
+                  Mengelola data siswa (aktif/freeze). <strong>Dapat merubah jadwal murid dan guru dengan persetujuan Super Admin / Yayasan</strong>. Menunjuk guru pengganti jika terapis izin.
                 </p>
               </div>
 
@@ -329,7 +283,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
                   3. Guru / Terapis
                 </p>
                 <p className="mt-1 text-emerald-800">
-                  Melihat jadwal mengajar (termasuk badge kuning jika menjadi Guru Pengganti), form input absensi & catatan perkembangan anak harian, serta form pengajuan izin ke Kepala Sekolah.
+                  Melihat jadwal mengajar (termasuk badge kuning jika menjadi guru pengganti), input absensi & catatan klinis perkembangan anak, serta mengajukan izin sesi.
                 </p>
               </div>
 
@@ -339,7 +293,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, setCurrentTab }) => 
                   4. Murid / Wali Murid (Strict Read-Only)
                 </p>
                 <p className="mt-1 text-cyan-800">
-                  Hanya bisa melihat kalender & jadwal terapi aktif milik ananda (termasuk terapis pengampu/pengganti), serta membaca riwayat evaluasi dan latihan stimulasi di rumah tanpa izin mengedit data.
+                  Hanya bisa melihat jadwal terapi ananda dan riwayat evaluasi klinis serta PR stimulasi rumah tanpa hak merubah data.
                 </p>
               </div>
             </div>

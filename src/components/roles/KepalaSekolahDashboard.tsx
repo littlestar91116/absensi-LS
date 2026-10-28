@@ -13,12 +13,14 @@ import {
   UserCheck, 
   AlertTriangle, 
   Search, 
-  Filter, 
   Plus, 
   X,
-  ArrowRight,
   ShieldAlert,
-  CalendarDays
+  CalendarDays,
+  Send,
+  FileCheck,
+  XCircle,
+  HelpCircle
 } from 'lucide-react';
 
 interface KepalaSekolahDashboardProps {
@@ -32,11 +34,12 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
     schedules, 
     sessions, 
     leaveRequests,
+    scheduleProposals,
     addStudent, 
     updateStudent, 
     deleteStudent, 
     toggleFreezeStudent,
-    saveMonthlySchedule,
+    submitScheduleProposal,
     deleteSchedule,
     approveLeaveRequest,
     rejectLeaveRequest,
@@ -69,10 +72,10 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
   // Freeze Confirmation Modal State
   const [freezeModalData, setFreezeModalData] = useState<{ student: Student; reason: string } | null>(null);
 
-  // Schedule Modal State
+  // Schedule Proposal Modal State
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [scheduleFormData, setScheduleFormData] = useState<{
-    id?: string;
+    scheduleId?: string;
     studentId: string;
     month: number;
     year: number;
@@ -82,7 +85,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
     room: string;
     preferredDays: string[];
     preferredTimeSlot: string;
-    notes?: string;
+    changeReason: string;
   }>({
     studentId: '',
     month: 10,
@@ -93,7 +96,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
     room: 'Ruang SI Sakura (Lantai 1)',
     preferredDays: ['Senin', 'Rabu'],
     preferredTimeSlot: '09:00 - 10:00',
-    notes: ''
+    changeReason: ''
   });
 
   // Substitute Assignment Modal State
@@ -192,11 +195,11 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
     setFreezeModalData(null);
   };
 
-  // Open Schedule Modal
+  // Open Schedule Modal (Proposal flow)
   const handleOpenScheduleModal = (existingSchedule?: MonthlySchedule) => {
     if (existingSchedule) {
       setScheduleFormData({
-        id: existingSchedule.id,
+        scheduleId: existingSchedule.id,
         studentId: existingSchedule.studentId,
         month: existingSchedule.month,
         year: existingSchedule.year,
@@ -206,10 +209,9 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
         room: existingSchedule.room,
         preferredDays: existingSchedule.preferredDays,
         preferredTimeSlot: existingSchedule.preferredTimeSlot,
-        notes: existingSchedule.notes || ''
+        changeReason: existingSchedule.notes || 'Penyesuaian jadwal berkala oleh Kepala Sekolah'
       });
     } else {
-      // Find first active student without schedule or default to first active
       const firstActiveStudent = students.find(s => s.status === 'active');
       setScheduleFormData({
         studentId: firstActiveStudent ? firstActiveStudent.id : '',
@@ -221,27 +223,33 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
         room: 'Ruang SI Sakura (Lantai 1)',
         preferredDays: ['Senin', 'Rabu'],
         preferredTimeSlot: '09:00 - 10:00',
-        notes: ''
+        changeReason: 'Pembagian jadwal terapi baru murid'
       });
     }
     setIsScheduleModalOpen(true);
   };
 
-  const handleSaveSchedule = (e: React.FormEvent) => {
+  const handleSaveScheduleProposal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduleFormData.studentId || !scheduleFormData.assignedTeacherId) {
       alert('Mohon pilih siswa dan guru pengampu.');
       return;
     }
 
-    // Verify if selected student is frozen
     const targetStudent = students.find(s => s.id === scheduleFormData.studentId);
     if (targetStudent?.status === 'frozen') {
-      alert(`Peringatan: Siswa ${targetStudent.name} sedang dalam status "Dibekukan (Freeze)". Harap unfreeze terlebih dahulu sebelum menetapkan jadwal aktif.`);
+      alert(`Peringatan: Siswa ${targetStudent.name} sedang dalam status "Dibekukan (Freeze)". Harap unfreeze terlebih dahulu sebelum mengajukan jadwal aktif.`);
       return;
     }
 
-    saveMonthlySchedule(scheduleFormData);
+    if (!scheduleFormData.changeReason.trim()) {
+      alert('Mohon sertakan alasan perubahan/alokasi jadwal untuk ditinjau oleh Yayasan.');
+      return;
+    }
+
+    // Submit proposal for Yayasan approval
+    submitScheduleProposal(scheduleFormData);
+    alert('Pengajuan alokasi/perubahan jadwal berhasil dikirim ke Super Admin / Yayasan untuk persetujuan resmi.');
     setIsScheduleModalOpen(false);
   };
 
@@ -479,32 +487,134 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
         </div>
       )}
 
-      {/* TAB 2: ATUR JADWAL BULANAN & MAPPING GURU */}
+      {/* TAB 2: ATUR JADWAL BULANAN (DENGAN PERSETUJUAN YAYASAN) */}
       {activeTab === 'jadwal' && (
         <div className="space-y-6">
+          
+          {/* Notice: Persetujuan Yayasan */}
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-indigo-950 shadow-xs">
+            <FileCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-indigo-950 text-sm">
+                Alur Otorisasi: Perubahan Jadwal Murid & Guru Memerlukan Persetujuan Yayasan
+              </p>
+              <p className="mt-0.5 text-indigo-800 leading-relaxed">
+                Sebagai Kepala Sekolah, setiap penambahan atau perubahan jadwal siswa dan guru yang Anda buat akan dikirim sebagai <strong>Pengajuan Resmi</strong> ke Super Admin / Yayasan. Jadwal baru akan otomatis terbit ke kalender setelah disetujui oleh Yayasan.
+              </p>
+            </div>
+          </div>
+
+          {/* Section: Status Pengajuan Jadwal ke Yayasan */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 mb-4">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-indigo-600" />
-                  Pembagian & Input Jadwal Siswa Bulanan
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Atur frekuensi mingguan (1x, 2x, 3x), durasi sesi (1 jam, 1.5 jam, 2 jam), dan guru pengampu
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-600" />
+                  Status Pengajuan Perubahan Jadwal ke Yayasan ({scheduleProposals.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Pantau permohonan alokasi jadwal yang sedang ditinjau, disetujui, atau ditolak oleh Yayasan
                 </p>
               </div>
 
               <button
                 onClick={() => handleOpenScheduleModal()}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                className="inline-flex items-center gap-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                <span>Atur Jadwal Baru</span>
+                <span>Ajukan Perubahan Jadwal Baru</span>
               </button>
             </div>
 
-            {/* List of active schedules */}
-            <div className="mt-4 overflow-x-auto">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3">Siswa & Terapi</th>
+                    <th className="px-4 py-3">Guru Diajukan</th>
+                    <th className="px-4 py-3">Frekuensi & Jam</th>
+                    <th className="px-4 py-3">Alasan Pengajuan</th>
+                    <th className="px-4 py-3 text-center">Status Yayasan</th>
+                    <th className="px-4 py-3">Catatan Yayasan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {scheduleProposals.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-6 text-slate-400">
+                        Belum ada pengajuan perubahan jadwal yang dikirim.
+                      </td>
+                    </tr>
+                  ) : (
+                    scheduleProposals.map((prop) => {
+                      const student = students.find(s => s.id === prop.studentId);
+                      const teacher = teachers.find(t => t.id === prop.assignedTeacherId);
+
+                      return (
+                        <tr key={prop.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {student?.name}
+                            <span className="block text-[11px] font-normal text-slate-500">{student?.therapyType}</span>
+                          </td>
+
+                          <td className="px-4 py-3 font-medium text-slate-800">
+                            {teacher?.name}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <span className="font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
+                              {prop.weeklyFrequency}x / Mgg ({prop.durationMinutes}m)
+                            </span>
+                            <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                              {prop.preferredDays.join(', ')} ({prop.preferredTimeSlot})
+                            </p>
+                          </td>
+
+                          <td className="px-4 py-3 max-w-xs text-slate-600">
+                            <p className="line-clamp-2 text-[11px]">{prop.changeReason}</p>
+                          </td>
+
+                          <td className="px-4 py-3 text-center">
+                            {prop.status === 'pending' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                <Clock className="w-3 h-3" />
+                                Menunggu Yayasan
+                              </span>
+                            )}
+                            {prop.status === 'approved' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Disetujui
+                              </span>
+                            )}
+                            {prop.status === 'rejected' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                <XCircle className="w-3 h-3" />
+                                Ditolak
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-3 text-[11px] text-slate-600">
+                            {prop.reviewNote || (prop.status === 'pending' ? 'Sedang ditinjau...' : '-')}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* List of active schedules currently running */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              Daftar Jadwal Terapi Aktif yang Sedang Berjalan (Telah Disetujui Yayasan)
+            </h3>
+
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                   <tr>
@@ -544,7 +654,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                             {sch.weeklyFrequency}x / Minggu
                           </span>
                           <p className="text-[11px] text-slate-500 mt-1 font-mono">
-                            Durasi: {sch.durationMinutes} Menit ({sch.durationMinutes === 60 ? '1 Jam' : sch.durationMinutes === 90 ? '1.5 Jam' : '2 Jam'})
+                            Durasi: {sch.durationMinutes} Menit
                           </p>
                         </td>
 
@@ -569,10 +679,11 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => handleOpenScheduleModal(sch)}
-                              className="p-1.5 text-slate-600 hover:text-blue-600 border border-slate-200 rounded-lg hover:bg-slate-50"
-                              title="Edit Jadwal"
+                              className="px-2 py-1 text-xs text-blue-600 hover:text-blue-700 font-medium border border-blue-200 rounded-lg hover:bg-blue-50 flex items-center gap-1"
+                              title="Ajukan Revisi Jadwal ke Yayasan"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
+                              <span>Ajukan Revisi</span>
                             </button>
                             <button
                               onClick={() => {
@@ -600,8 +711,6 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
       {/* TAB 3: PENUGASAN GURU PENGGANTI (SUBSTITUTE) */}
       {activeTab === 'pengganti' && (
         <div className="space-y-6">
-          
-          {/* Header Card */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
               <div>
@@ -615,7 +724,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
               </div>
             </div>
 
-            {/* Section 1: Pending Leave Requests */}
+            {/* Pending Leave Requests */}
             <div className="mt-5">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -695,7 +804,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
               )}
             </div>
 
-            {/* Section 2: Active Substituted Sessions */}
+            {/* Active Substituted Sessions */}
             <div className="mt-8 pt-6 border-t border-slate-200">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -986,7 +1095,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                   rows={3}
                   value={freezeModalData.reason}
                   onChange={(e) => setFreezeModalData({ ...freezeModalData, reason: e.target.value })}
-                  placeholder="Misal: Pemulihan rawat inap pasca sakit, cuti ke luar kota selama 1 bulan, dll."
+                  placeholder="Misal: Pemulihan rawat inap pasca operasi, cuti ke luar kota..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
@@ -1013,14 +1122,14 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
         </div>
       )}
 
-      {/* MODAL: INPUT JADWAL SISWA BULANAN */}
+      {/* MODAL: INPUT PENGAJUAN PERUBAHAN JADWAL KE YAYASAN */}
       {isScheduleModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
                 <CalendarDays className="w-5 h-5 text-indigo-600" />
-                Form Alokasi Jadwal & Guru Pengampu
+                Form Pengajuan Perubahan Jadwal ke Yayasan
               </h3>
               <button 
                 onClick={() => setIsScheduleModalOpen(false)}
@@ -1030,7 +1139,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
               </button>
             </div>
 
-            <form onSubmit={handleSaveSchedule} className="mt-4 space-y-3.5 text-xs">
+            <form onSubmit={handleSaveScheduleProposal} className="mt-4 space-y-3.5 text-xs">
               
               {/* Select Student */}
               <div>
@@ -1052,16 +1161,11 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                     </option>
                   ))}
                 </select>
-                {students.find(s => s.id === scheduleFormData.studentId)?.status === 'frozen' && (
-                  <p className="text-[11px] text-rose-600 mt-1 font-semibold">
-                    Perhatian: Siswa ini berstatus dibekukan (freeze). Tidak dapat dijadwalkan sesi aktif.
-                  </p>
-                )}
               </div>
 
               {/* Select Teacher */}
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Guru Pengampu Utama (Terapis) *</label>
+                <label className="block font-semibold text-slate-700 mb-1">Guru Pengampu yang Diajukan *</label>
                 <select
                   required
                   value={scheduleFormData.assignedTeacherId}
@@ -1151,7 +1255,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                     value={scheduleFormData.preferredTimeSlot}
                     onChange={(e) => setScheduleFormData({ ...scheduleFormData, preferredTimeSlot: e.target.value })}
                     placeholder="Contoh: 09:00 - 10:00"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono"
                   />
                 </div>
 
@@ -1160,7 +1264,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                   <select
                     value={scheduleFormData.room}
                     onChange={(e) => setScheduleFormData({ ...scheduleFormData, room: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                   >
                     <option value="Ruang SI Sakura (Lantai 1)">Ruang SI Sakura (Lantai 1)</option>
                     <option value="Ruang Wicara Anggrek (Lantai 2)">Ruang Wicara Anggrek (Lantai 2)</option>
@@ -1169,6 +1273,21 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                     <option value="Ruang ABA Kenanga (Lantai 1)">Ruang ABA Kenanga (Lantai 1)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Reason for Yayasan Review */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Alasan Perubahan / Alokasi Jadwal (Untuk Peninjauan Yayasan) *
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={scheduleFormData.changeReason}
+                  onChange={(e) => setScheduleFormData({ ...scheduleFormData, changeReason: e.target.value })}
+                  placeholder="Misal: Permintaan wali murid untuk penambahan frekuensi okupasi persiapan masuk sekolah..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -1181,9 +1300,10 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+                  className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-1.5"
                 >
-                  Simpan & Terbitkan Jadwal
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Kirim Pengajuan ke Yayasan</span>
                 </button>
               </div>
             </form>
@@ -1191,7 +1311,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
         </div>
       )}
 
-      {/* MODAL: PILIH GURU PENGGANTI (SUBSTITUTE MODAL) */}
+      {/* MODAL: PILIH GURU PENGGANTI */}
       {substituteModalData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
@@ -1230,9 +1350,6 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Guru pengganti akan otomatis menerima notifikasi jadwal dan badge khusus "Guru Pengganti" di dashboard.
-                </p>
               </div>
             </div>
 

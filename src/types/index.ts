@@ -1,13 +1,19 @@
 export type UserRole = 'yayasan' | 'kepala_sekolah' | 'guru' | 'murid';
 
+export type UserStatus = 'active' | 'frozen' | 'inactive';
+
 export interface User {
   id: string;
   name: string;
   role: UserRole;
   email: string;
+  password?: string;
   phone: string;
   title: string;
   avatarColor: string;
+  status: UserStatus;
+  freezeReason?: string;
+  frozenAt?: string;
   studentId?: string; // Khusus role 'murid' untuk menghubungkan ke profil anak
   specialization?: string; // Khusus role 'guru'
 }
@@ -54,6 +60,29 @@ export interface MonthlySchedule {
   notes?: string;
 }
 
+// Pengajuan Perubahan Jadwal oleh Kepala Sekolah yang membutuhkan persetujuan Super Admin / Yayasan
+export interface ScheduleChangeProposal {
+  id: string;
+  scheduleId?: string; // Jika revisi jadwal eksisting
+  studentId: string;
+  month: number;
+  year: number;
+  weeklyFrequency: number;
+  durationMinutes: number;
+  assignedTeacherId: string;
+  room: string;
+  preferredDays: string[];
+  preferredTimeSlot: string;
+  changeReason: string; // Alasan perubahan jadwal dari Kepala Sekolah
+  proposedBy: string; // Nama Kepala Sekolah
+  proposedById: string;
+  proposedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: string; // Nama Super Admin / Yayasan
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
 export interface Session {
   id: string;
   scheduleId?: string;
@@ -95,4 +124,13 @@ export interface TeacherLeaveRequest {
   createdAt: string;
   reviewedAt?: string;
   reviewedBy?: string;
+}
+
+// Pengaturan Hak Akses Tampilan Website (Hanya Dikelola Super Admin / Yayasan)
+export interface ViewPermission {
+  id: string;
+  name: string;
+  description: string;
+  category: 'dashboard' | 'operational' | 'clinical' | 'administrative';
+  allowedRoles: UserRole[]; // Role mana saja yang diberi izin membuka fitur/tab ini
 }

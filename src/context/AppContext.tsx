@@ -6,7 +6,9 @@ import {
   MonthlySchedule, 
   Session, 
   Attendance, 
-  TeacherLeaveRequest 
+  TeacherLeaveRequest,
+  ScheduleChangeProposal,
+  ViewPermission
 } from '../types';
 import { 
   INITIAL_USERS, 
@@ -14,21 +16,36 @@ import {
   INITIAL_SCHEDULES, 
   INITIAL_SESSIONS, 
   INITIAL_ATTENDANCES, 
-  INITIAL_LEAVE_REQUESTS 
+  INITIAL_LEAVE_REQUESTS,
+  INITIAL_SCHEDULE_PROPOSALS,
+  INITIAL_VIEW_PERMISSIONS
 } from '../data/mockData';
 
 interface AppContextType {
-  currentUser: User;
+  currentUser: User | null;
   users: User[];
   students: Student[];
   schedules: MonthlySchedule[];
   sessions: Session[];
   attendances: Attendance[];
   leaveRequests: TeacherLeaveRequest[];
+  scheduleProposals: ScheduleChangeProposal[];
+  viewPermissions: ViewPermission[];
   
-  // Auth & Role
-  setCurrentUser: (user: User) => void;
-  switchRole: (role: UserRole, specificUserId?: string) => void;
+  // Auth
+  login: (email: string, password?: string) => { success: boolean; message?: string };
+  quickLogin: (user: User) => { success: boolean; message?: string };
+  logout: () => void;
+  
+  // Super Admin: User Management & Freeze
+  addUser: (userData: Omit<User, 'id'>) => void;
+  updateUser: (userData: User) => void;
+  deleteUser: (userId: string) => void;
+  toggleFreezeUser: (userId: string, reason?: string) => void;
+
+  // Super Admin: View Permissions Matrix
+  updateRolePermission: (permissionId: string, role: UserRole, hasAccess: boolean) => void;
+  hasPermission: (permissionId: string) => boolean;
   
   // Student Management (Kepala Sekolah / Yayasan)
   addStudent: (studentData: Omit<Student, 'id' | 'registrationDate'>) => void;
@@ -36,9 +53,22 @@ interface AppContextType {
   deleteStudent: (studentId: string) => void;
   toggleFreezeStudent: (studentId: string, reason?: string) => void;
   
-  // Scheduling & Mapping (Kepala Sekolah)
-  saveMonthlySchedule: (scheduleData: Omit<MonthlySchedule, 'id'> & { id?: string }) => void;
-  generateSessionsForMonth: (schedule: MonthlySchedule) => void;
+  // Scheduling & Approval Flow (Kepala Sekolah -> Super Admin / Yayasan)
+  submitScheduleProposal: (data: {
+    studentId: string;
+    scheduleId?: string;
+    month: number;
+    year: number;
+    weeklyFrequency: number;
+    durationMinutes: number;
+    assignedTeacherId: string;
+    room: string;
+    preferredDays: string[];
+    preferredTimeSlot: string;
+    changeReason: string;
+  }) => void;
+  approveScheduleProposal: (proposalId: string, reviewNote?: string) => void;
+  rejectScheduleProposal: (proposalId: string, reviewNote: string) => void;
   deleteSchedule: (scheduleId: string) => void;
   
   // Substitute Management
@@ -49,32 +79,26 @@ interface AppContextType {
   // Teacher Actions
   submitLeaveRequest: (data: { teacherId: string; sessionId: string; sessionDate: string; reason: string }) => void;
   submitAttendance: (data: Omit<Attendance, 'id' | 'timestamp'>) => void;
-  
-  // User Management (Yayasan)
-  addUser: (userData: Omit<User, 'id'>) => void;
-  updateUser: (userData: User) => void;
-  deleteUser: (userId: string) => void;
 
   // Utilities
   resetToDefaultData: () => void;
 }
 
-const STORAGE_KEY = 'terapina_v1_store';
+const STORAGE_KEY = 'terapina_v2_store';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Load initial from localStorage or defaults
+  // Load initial users
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY}_users`);
     return saved ? JSON.parse(saved) : INITIAL_USERS;
   });
 
-  const [currentUser, setCurrentUser] = useState<User>(() => {
+  // Current logged in user (null by default so initial view is Login Screen)
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY}_currentUser`);
-    if (saved) return JSON.parse(saved);
-    // Default to Kepala Sekolah to showcase scheduling & student management
-    return INITIAL_USERS.find(u => u.role === 'kepala_sekolah') || INITIAL_USERS[0];
+    return saved ? JSON.parse(saved) : null;
   });
 
   const [students, setStudents] = useState<Student[]>(() => {
@@ -102,13 +126,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_LEAVE_REQUESTS;
   });
 
-  // Sync to local storage
+  const [scheduleProposals, setScheduleProposals] = useState<ScheduleChangeProposal[]>(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY}_scheduleProposals`);
+    return saved ? JSON.parse(saved) : INITIAL_SCHEDULE_PROPOSALS;
+  });
+
+  const [viewPermissions, setViewPermissions] = useState<ViewPermission[]>(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY}_viewPermissions`);
+    return saved ? JSON.parse(saved) : INITIAL_VIEW_PERMISSIONS;
+  });
+
+  // Persist state to LocalStorage
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(users));
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY}_currentUser`, JSON.stringify(currentUser));
+    if (currentUser) {
+      localStorage.setItem(`${STORAGE_KEY}_currentUser`, JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem(`${STORAGE_KEY}_currentUser`);
+    }
   }, [currentUser]);
 
   useEffect(() => {
@@ -131,19 +169,141 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(`${STORAGE_KEY}_leaveRequests`, JSON.stringify(leaveRequests));
   }, [leaveRequests]);
 
-  // Role Switcher
-  const switchRole = (role: UserRole, specificUserId?: string) => {
-    if (specificUserId) {
-      const target = users.find(u => u.id === specificUserId);
-      if (target) {
-        setCurrentUser(target);
-        return;
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY}_scheduleProposals`, JSON.stringify(scheduleProposals));
+  }, [scheduleProposals]);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY}_viewPermissions`, JSON.stringify(viewPermissions));
+  }, [viewPermissions]);
+
+  // Auth: Login with credentials
+  const login = (email: string, password?: string): { success: boolean; message?: string } => {
+    const query = email.trim().toLowerCase();
+    const foundUser = users.find(
+      u => u.email.toLowerCase() === query || 
+           u.email.toLowerCase().split('@')[0] === query ||
+           u.id.toLowerCase() === query ||
+           u.name.toLowerCase() === query
+    );
+
+    if (!foundUser) {
+      return { success: false, message: 'Email atau ID Pengguna tidak terdaftar dalam sistem.' };
+    }
+
+    // Check password if provided and user has one
+    if (password && foundUser.password && foundUser.password !== password) {
+      return { success: false, message: 'Kata sandi tidak sesuai.' };
+    }
+
+    // Check account status: Frozen accounts CANNOT log in!
+    if (foundUser.status === 'frozen') {
+      return { 
+        success: false, 
+        message: `Akun ini DIBEKUKAN oleh Super Admin / Yayasan. Alasan: "${foundUser.freezeReason || 'Penangguhan akses administratif'}". Hubungi Yayasan untuk pengaktifan kembali.` 
+      };
+    }
+
+    if (foundUser.status === 'inactive') {
+      return { success: false, message: 'Akun ini dalam status Non-Aktif.' };
+    }
+
+    setCurrentUser(foundUser);
+    return { success: true };
+  };
+
+  // Quick 1-click login for demo/testing
+  const quickLogin = (user: User): { success: boolean; message?: string } => {
+    if (user.status === 'frozen') {
+      return { 
+        success: false, 
+        message: `Akun ${user.name} saat ini DIBEKUKAN oleh Super Admin. Alasan: "${user.freezeReason || 'Penangguhan akses'}".` 
+      };
+    }
+    setCurrentUser(user);
+    return { success: true };
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+  };
+
+  // Super Admin: User Management & Freeze
+  const addUser = (userData: Omit<User, 'id'>) => {
+    const newUser: User = {
+      ...userData,
+      id: `usr-${Date.now().toString().slice(-4)}`,
+      status: userData.status || 'active',
+      password: userData.password || 'password123'
+    };
+    setUsers(prev => [...prev, newUser]);
+  };
+
+  const updateUser = (userData: User) => {
+    setUsers(prev => prev.map(u => u.id === userData.id ? userData : u));
+    if (currentUser?.id === userData.id) {
+      setCurrentUser(userData);
+    }
+  };
+
+  const deleteUser = (userId: string) => {
+    setUsers(prev => prev.filter(u => u.id !== userId));
+    if (currentUser?.id === userId) {
+      logout();
+    }
+  };
+
+  const toggleFreezeUser = (userId: string, reason?: string) => {
+    setUsers(prev => prev.map(u => {
+      if (u.id !== userId) return u;
+      const isCurrentlyFrozen = u.status === 'frozen';
+      if (isCurrentlyFrozen) {
+        return {
+          ...u,
+          status: 'active',
+          freezeReason: undefined,
+          frozenAt: undefined
+        };
+      } else {
+        return {
+          ...u,
+          status: 'frozen',
+          freezeReason: reason || 'Dibekukan oleh Super Admin / Yayasan',
+          frozenAt: new Date().toISOString().split('T')[0]
+        };
       }
+    }));
+
+    // If the currently logged in user gets frozen, log them out
+    if (currentUser?.id === userId && currentUser.status !== 'frozen') {
+      alert('Akun Anda baru saja dibekukan oleh Super Admin. Anda akan diarahkan ke halaman login.');
+      logout();
     }
-    const targetUser = users.find(u => u.role === role);
-    if (targetUser) {
-      setCurrentUser(targetUser);
-    }
+  };
+
+  // Super Admin: Role View Permissions Matrix
+  const updateRolePermission = (permissionId: string, role: UserRole, hasAccess: boolean) => {
+    setViewPermissions(prev => prev.map(perm => {
+      if (perm.id !== permissionId) return perm;
+      const currentAllowed = perm.allowedRoles;
+      let newAllowed: UserRole[];
+      if (hasAccess) {
+        newAllowed = currentAllowed.includes(role) ? currentAllowed : [...currentAllowed, role];
+      } else {
+        newAllowed = currentAllowed.filter(r => r !== role);
+      }
+      return { ...perm, allowedRoles: newAllowed };
+    }));
+  };
+
+  const hasPermission = (permissionId: string): boolean => {
+    if (!currentUser) return false;
+    // Super admin (yayasan) always has full foundational access
+    if (currentUser.role === 'yayasan') return true;
+
+    const perm = viewPermissions.find(p => p.id === permissionId);
+    if (!perm) return false;
+    return perm.allowedRoles.includes(currentUser.role);
   };
 
   // Student CRUD
@@ -163,7 +323,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteStudent = (studentId: string) => {
     setStudents(prev => prev.filter(s => s.id !== studentId));
-    // Remove related sessions/schedules
     setSchedules(prev => prev.filter(s => s.studentId !== studentId));
     setSessions(prev => prev.filter(s => s.studentId !== studentId));
   };
@@ -190,30 +349,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
-  // Schedule management
-  const saveMonthlySchedule = (scheduleData: Omit<MonthlySchedule, 'id'> & { id?: string }) => {
-    const scheduleId = scheduleData.id || `sch-${Date.now().toString().slice(-4)}`;
-    const completeSchedule: MonthlySchedule = {
-      ...scheduleData,
-      id: scheduleId
-    };
-
-    setSchedules(prev => {
-      const exists = prev.some(s => s.id === scheduleId);
-      if (exists) {
-        return prev.map(s => s.id === scheduleId ? completeSchedule : s);
-      }
-      return [...prev, completeSchedule];
-    });
-
-    // Generate sessions automatically
-    generateSessionsForMonth(completeSchedule);
-  };
-
-  const generateSessionsForMonth = (schedule: MonthlySchedule) => {
-    // Generate dates for preferred days in the given month and year
+  // Helper to generate sessions
+  const generateSessionsForSchedule = (schedule: MonthlySchedule) => {
     const year = schedule.year;
-    const month = schedule.month; // 1-indexed
+    const month = schedule.month;
     const dayMap: { [key: string]: number } = {
       'Minggu': 0, 'Senin': 1, 'Selasa': 2, 'Rabu': 3, 'Kamis': 4, 'Jumat': 5, 'Sabtu': 6
     };
@@ -230,7 +369,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayName = Object.keys(dayMap).find(k => dayMap[k] === dayOfWeek) || 'Hari';
         
-        // Check if session already exists for this date and student
         const existingSession = sessions.find(s => s.studentId === schedule.studentId && s.date === dateStr);
         if (!existingSession) {
           const isPast = new Date(dateStr) < new Date('2026-10-28');
@@ -253,6 +391,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (newSessions.length > 0) {
       setSessions(prev => [...prev, ...newSessions]);
     }
+  };
+
+  // Workflow: Kepala Sekolah Mengajukan Perubahan Jadwal -> Membutuhkan Persetujuan Yayasan
+  const submitScheduleProposal = (data: {
+    studentId: string;
+    scheduleId?: string;
+    month: number;
+    year: number;
+    weeklyFrequency: number;
+    durationMinutes: number;
+    assignedTeacherId: string;
+    room: string;
+    preferredDays: string[];
+    preferredTimeSlot: string;
+    changeReason: string;
+  }) => {
+    const newProposal: ScheduleChangeProposal = {
+      id: `prop-${Date.now().toString().slice(-4)}`,
+      scheduleId: data.scheduleId,
+      studentId: data.studentId,
+      month: data.month,
+      year: data.year,
+      weeklyFrequency: data.weeklyFrequency,
+      durationMinutes: data.durationMinutes,
+      assignedTeacherId: data.assignedTeacherId,
+      room: data.room,
+      preferredDays: data.preferredDays,
+      preferredTimeSlot: data.preferredTimeSlot,
+      changeReason: data.changeReason,
+      proposedBy: currentUser?.name || 'Kepala Sekolah',
+      proposedById: currentUser?.id || 'usr-kepsek',
+      proposedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
+      status: 'pending'
+    };
+
+    setScheduleProposals(prev => [newProposal, ...prev]);
+  };
+
+  // Super Admin / Yayasan Menyetujui Perubahan Jadwal
+  const approveScheduleProposal = (proposalId: string, reviewNote?: string) => {
+    const targetProposal = scheduleProposals.find(p => p.id === proposalId);
+    if (!targetProposal) return;
+
+    // Apply change to schedules
+    const targetScheduleId = targetProposal.scheduleId || `sch-${Date.now().toString().slice(-4)}`;
+    const newSchedule: MonthlySchedule = {
+      id: targetScheduleId,
+      studentId: targetProposal.studentId,
+      month: targetProposal.month,
+      year: targetProposal.year,
+      weeklyFrequency: targetProposal.weeklyFrequency,
+      durationMinutes: targetProposal.durationMinutes,
+      assignedTeacherId: targetProposal.assignedTeacherId,
+      room: targetProposal.room,
+      preferredDays: targetProposal.preferredDays,
+      preferredTimeSlot: targetProposal.preferredTimeSlot,
+      notes: targetProposal.changeReason
+    };
+
+    setSchedules(prev => {
+      const exists = prev.some(s => s.id === targetScheduleId);
+      if (exists) {
+        return prev.map(s => s.id === targetScheduleId ? newSchedule : s);
+      }
+      return [...prev, newSchedule];
+    });
+
+    // Generate sessions automatically
+    generateSessionsForSchedule(newSchedule);
+
+    // Update proposal status
+    setScheduleProposals(prev => prev.map(p => {
+      if (p.id !== proposalId) return p;
+      return {
+        ...p,
+        status: 'approved',
+        reviewedBy: currentUser?.name || 'Super Admin / Yayasan',
+        reviewedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        reviewNote: reviewNote || 'Perubahan jadwal disetujui resmi oleh Yayasan.'
+      };
+    }));
+  };
+
+  // Super Admin / Yayasan Menolak Perubahan Jadwal
+  const rejectScheduleProposal = (proposalId: string, reviewNote: string) => {
+    setScheduleProposals(prev => prev.map(p => {
+      if (p.id !== proposalId) return p;
+      return {
+        ...p,
+        status: 'rejected',
+        reviewedBy: currentUser?.name || 'Super Admin / Yayasan',
+        reviewedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        reviewNote
+      };
+    }));
   };
 
   const deleteSchedule = (scheduleId: string) => {
@@ -283,11 +516,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'approved',
         substituteTeacherId,
         reviewedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
-        reviewedBy: `${currentUser.name} (${currentUser.title})`
+        reviewedBy: currentUser ? `${currentUser.name} (${currentUser.title})` : 'Kepala Sekolah'
       };
     }));
 
-    // Update session
     if (request.sessionId) {
       assignSubstitute(request.sessionId, substituteTeacherId, `Izin Guru Utama: ${request.reason}`);
     }
@@ -300,12 +532,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...r,
         status: 'rejected',
         reviewedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
-        reviewedBy: `${currentUser.name} (${currentUser.title})`
+        reviewedBy: currentUser ? `${currentUser.name} (${currentUser.title})` : 'Kepala Sekolah'
       };
     }));
   };
 
-  // Teacher actions
   const submitLeaveRequest = (data: { teacherId: string; sessionId: string; sessionDate: string; reason: string }) => {
     const newRequest: TeacherLeaveRequest = {
       id: `lvr-${Date.now().toString().slice(-4)}`,
@@ -333,7 +564,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAttendances(prev => [newRecord, ...prev]);
     }
 
-    // Mark session as completed
     setSessions(prev => prev.map(s => {
       if (s.id !== data.sessionId) return s;
       return {
@@ -343,34 +573,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
-  // User Management
-  const addUser = (userData: Omit<User, 'id'>) => {
-    const newUser: User = {
-      ...userData,
-      id: `usr-${Date.now().toString().slice(-4)}`
-    };
-    setUsers(prev => [...prev, newUser]);
-  };
-
-  const updateUser = (userData: User) => {
-    setUsers(prev => prev.map(u => u.id === userData.id ? userData : u));
-    if (currentUser.id === userData.id) {
-      setCurrentUser(userData);
-    }
-  };
-
-  const deleteUser = (userId: string) => {
-    setUsers(prev => prev.filter(u => u.id !== userId));
-  };
-
   const resetToDefaultData = () => {
     setUsers(INITIAL_USERS);
-    setCurrentUser(INITIAL_USERS.find(u => u.role === 'kepala_sekolah') || INITIAL_USERS[0]);
+    setCurrentUser(null); // Return to login view
     setStudents(INITIAL_STUDENTS);
     setSchedules(INITIAL_SCHEDULES);
     setSessions(INITIAL_SESSIONS);
     setAttendances(INITIAL_ATTENDANCES);
     setLeaveRequests(INITIAL_LEAVE_REQUESTS);
+    setScheduleProposals(INITIAL_SCHEDULE_PROPOSALS);
+    setViewPermissions(INITIAL_VIEW_PERMISSIONS);
     localStorage.clear();
   };
 
@@ -384,23 +596,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sessions,
         attendances,
         leaveRequests,
-        setCurrentUser,
-        switchRole,
+        scheduleProposals,
+        viewPermissions,
+        login,
+        quickLogin,
+        logout,
+        addUser,
+        updateUser,
+        deleteUser,
+        toggleFreezeUser,
+        updateRolePermission,
+        hasPermission,
         addStudent,
         updateStudent,
         deleteStudent,
         toggleFreezeStudent,
-        saveMonthlySchedule,
-        generateSessionsForMonth,
+        submitScheduleProposal,
+        approveScheduleProposal,
+        rejectScheduleProposal,
         deleteSchedule,
         assignSubstitute,
         approveLeaveRequest,
         rejectLeaveRequest,
         submitLeaveRequest,
         submitAttendance,
-        addUser,
-        updateUser,
-        deleteUser,
         resetToDefaultData
       }}
     >

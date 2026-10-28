@@ -1,83 +1,122 @@
-import { User, Student, MonthlySchedule, Session, Attendance, TeacherLeaveRequest } from '../types';
+import { 
+  User, 
+  Student, 
+  MonthlySchedule, 
+  Session, 
+  Attendance, 
+  TeacherLeaveRequest, 
+  ScheduleChangeProposal,
+  ViewPermission 
+} from '../types';
 
 export const INITIAL_USERS: User[] = [
   {
     id: 'usr-yayasan',
     name: 'Dr. Hj. Nurul Hidayati, M.Psi',
     role: 'yayasan',
-    email: 'nurul.hidayati@terapina.org',
+    email: 'nurul@littlestar.sch.id',
+    password: 'password123',
     phone: '0811-2345-6789',
-    title: 'Ketua Yayasan Pelita Inklusi',
-    avatarColor: 'bg-indigo-600'
+    title: 'Ketua Yayasan Little Star Learning Center',
+    avatarColor: 'bg-indigo-600',
+    status: 'active'
   },
   {
     id: 'usr-kepsek',
     name: 'Ahmad Fauzi, S.Pd, M.Ed',
     role: 'kepala_sekolah',
-    email: 'ahmad.fauzi@terapina.org',
+    email: 'ahmad@littlestar.sch.id',
+    password: 'password123',
     phone: '0812-3456-7890',
     title: 'Kepala Sekolah & Koordinator Klinis',
-    avatarColor: 'bg-blue-600'
+    avatarColor: 'bg-blue-600',
+    status: 'active'
   },
   {
     id: 'usr-guru-kiky',
     name: 'Kiky Amanda, S.Tr.Kes',
     role: 'guru',
-    email: 'kiky.amanda@terapina.org',
+    email: 'kiky@littlestar.sch.id',
+    password: 'password123',
     phone: '0813-4567-8901',
     title: 'Terapis Sensori Integrasi (SI)',
     specialization: 'Sensori Integrasi (SI)',
-    avatarColor: 'bg-emerald-600'
+    avatarColor: 'bg-emerald-600',
+    status: 'active'
   },
   {
     id: 'usr-guru-bayu',
     name: 'Bayu Pratama, S.SiT',
     role: 'guru',
-    email: 'bayu.pratama@terapina.org',
+    email: 'bayu@littlestar.sch.id',
+    password: 'password123',
     phone: '0814-5678-9012',
     title: 'Terapis Wicara Senior',
     specialization: 'Terapi Wicara (TW)',
-    avatarColor: 'bg-teal-600'
+    avatarColor: 'bg-teal-600',
+    status: 'active'
   },
   {
     id: 'usr-guru-ratih',
     name: 'Ratih Kusuma, A.Md.OT',
     role: 'guru',
-    email: 'ratih.kusuma@terapina.org',
+    email: 'ratih@littlestar.sch.id',
+    password: 'password123',
     phone: '0815-6789-0123',
     title: 'Terapis Okupasi (TO)',
     specialization: 'Terapi Okupasi (TO)',
-    avatarColor: 'bg-amber-600'
+    avatarColor: 'bg-amber-600',
+    status: 'active'
   },
   {
     id: 'usr-guru-dimas',
     name: 'Dimas Anggara, S.Ft, Ftr',
     role: 'guru',
-    email: 'dimas.anggara@terapina.org',
+    email: 'dimas@littlestar.sch.id',
+    password: 'password123',
     phone: '0816-7890-1234',
     title: 'Fisioterapis Pediatrik',
     specialization: 'Fisioterapi Pediatrik',
-    avatarColor: 'bg-purple-600'
+    avatarColor: 'bg-purple-600',
+    status: 'active'
   },
   {
     id: 'usr-murid-bintang',
     name: 'Bpk. Hendra Wijaya',
     role: 'murid',
-    email: 'hendra.wijaya@gmail.com',
+    email: 'hendra@gmail.com',
+    password: 'password123',
     phone: '0812-8899-1234',
     title: 'Wali Murid (Ananda Bintang)',
     studentId: 'std-001',
-    avatarColor: 'bg-cyan-600'
+    avatarColor: 'bg-cyan-600',
+    status: 'active'
   },
   {
     id: 'usr-murid-kenzo',
     name: 'Ibu Maya Putri, S.E.',
     role: 'murid',
-    email: 'maya.putri@gmail.com',
+    email: 'maya@gmail.com',
+    password: 'password123',
     phone: '0813-7722-9900',
     title: 'Wali Murid (Ananda Kenzo)',
     studentId: 'std-002',
-    avatarColor: 'bg-rose-600'
+    avatarColor: 'bg-rose-600',
+    status: 'active'
+  },
+  {
+    id: 'usr-frozen-demo',
+    name: 'Rian Hidayat (Akun Dibekukan)',
+    role: 'guru',
+    email: 'rian@littlestar.sch.id',
+    password: 'password123',
+    phone: '0819-3344-5566',
+    title: 'Terapis Magang',
+    specialization: 'Sensori Integrasi',
+    avatarColor: 'bg-slate-500',
+    status: 'frozen',
+    freezeReason: 'Akun dibekukan sementara oleh Super Admin karena cuti pendidikan semester ganjil.',
+    frozenAt: '2026-10-15'
   }
 ];
 
@@ -347,7 +386,7 @@ export const INITIAL_SESSIONS: Session[] = [
     isSubstituted: false,
     status: 'completed'
   },
-  // HARI INI: 2026-10-28 (Rabu) - Sesi Bintang dengan GURU PENGGANTI (Bu Ratih Kusuma) karena Bu Kiky izin workshop
+  // HARI INI: 2026-10-28 (Rabu) - Sesi Bintang dengan GURU PENGGANTI (Bu Ratih Kusuma)
   {
     id: 'ses-008',
     scheduleId: 'sch-001',
@@ -500,7 +539,7 @@ export const INITIAL_SESSIONS: Session[] = [
     status: 'scheduled'
   },
 
-  // Sesi Rayhan (Senin, Rabu, Jumat)
+  // Sesi Rayhan
   {
     id: 'ses-301',
     scheduleId: 'sch-004',
@@ -514,7 +553,7 @@ export const INITIAL_SESSIONS: Session[] = [
     status: 'scheduled'
   },
 
-  // Sesi Arka (Selasa & Jumat)
+  // Sesi Arka
   {
     id: 'ses-401',
     scheduleId: 'sch-006',
@@ -638,7 +677,7 @@ export const INITIAL_ATTENDANCES: Attendance[] = [
     studentId: 'std-002',
     teacherId: 'usr-guru-bayu',
     status: 'hadir',
-    therapyNotes: 'Flashcard hewan peliharaan. Kenzo mampu mengidentifikasi dan meniru bunyi kucing (meong) dan sapi (moo) secara spontan tanpa prompted.',
+    therapyNotes: 'Flashcard hewan peliharaan. Kenzo mampu mengidentifikasi dan meniru bunyi kucing (meong) dan sapi (moo) secara spontan.',
     homeworkNotes: 'Membaca buku cerita bergambar interaktif 10 menit sebelum tidur.',
     cooperationRating: 5,
     timestamp: '2026-10-08 11:32'
@@ -745,5 +784,115 @@ export const INITIAL_LEAVE_REQUESTS: TeacherLeaveRequest[] = [
     reason: 'Pemeriksaan kesehatan berkala dan tes audiometri klinis terjadwal',
     status: 'pending',
     createdAt: '2026-10-27 11:00'
+  }
+];
+
+// Pengajuan Perubahan Jadwal oleh Kepala Sekolah ke Super Admin / Yayasan
+export const INITIAL_SCHEDULE_PROPOSALS: ScheduleChangeProposal[] = [
+  {
+    id: 'prop-001',
+    scheduleId: 'sch-003',
+    studentId: 'std-003', // Nadhira Az-Zahra
+    month: 11,
+    year: 2026,
+    weeklyFrequency: 3,
+    durationMinutes: 90,
+    assignedTeacherId: 'usr-guru-ratih',
+    room: 'Ruang Okupasi Melati (Lantai 2)',
+    preferredDays: ['Senin', 'Rabu', 'Jumat'],
+    preferredTimeSlot: '13:00 - 14:30',
+    changeReason: 'Permintaan intensif okupasi dari wali murid untuk persiapan transisi masuk SD Inklusi semester genap.',
+    proposedBy: 'Ahmad Fauzi, S.Pd, M.Ed',
+    proposedById: 'usr-kepsek',
+    proposedAt: '2026-10-27 15:30',
+    status: 'pending'
+  }
+];
+
+// Pengaturan Hak Akses Tampilan Website (Dikonfigurasi Super Admin)
+export const INITIAL_VIEW_PERMISSIONS: ViewPermission[] = [
+  {
+    id: 'perm_kpi',
+    name: 'Ringkasan & KPI Statistik Klinik',
+    description: 'Akses melihat kartu statistik total siswa, sesi berjalan, dan tingkat kehadiran',
+    category: 'dashboard',
+    allowedRoles: ['yayasan', 'kepala_sekolah']
+  },
+  {
+    id: 'perm_siswa',
+    name: 'Manajemen Data Siswa',
+    description: 'Melihat, menambah, mengubah, dan membekukan status siswa (Freeze)',
+    category: 'operational',
+    allowedRoles: ['yayasan', 'kepala_sekolah']
+  },
+  {
+    id: 'perm_jadwal',
+    name: 'Pengaturan Jadwal & Terapis',
+    description: 'Mengajukan pembagian jadwal bulanan siswa dan alokasi guru pengampu',
+    category: 'operational',
+    allowedRoles: ['yayasan', 'kepala_sekolah']
+  },
+  {
+    id: 'perm_pengganti',
+    name: 'Manajemen Guru Pengganti',
+    description: 'Menerima alert izin guru dan menunjuk guru pengganti sementara',
+    category: 'operational',
+    allowedRoles: ['yayasan', 'kepala_sekolah']
+  },
+  {
+    id: 'perm_jadwal_mengajar',
+    name: 'Jadwal Mengajar Terapis',
+    description: 'Kalender sesi terapi harian & bulanan guru serta label guru pengganti',
+    category: 'clinical',
+    allowedRoles: ['yayasan', 'guru']
+  },
+  {
+    id: 'perm_absensi_input',
+    name: 'Input Absensi & Catatan Klinis',
+    description: 'Form checklist kehadiran dan textarea evaluasi perkembangan anak',
+    category: 'clinical',
+    allowedRoles: ['yayasan', 'guru']
+  },
+  {
+    id: 'perm_izin_guru',
+    name: 'Pengajuan Izin Sesi Guru',
+    description: 'Formulir pengajuan izin ketidakhadiran ke Kepala Sekolah',
+    category: 'clinical',
+    allowedRoles: ['yayasan', 'guru']
+  },
+  {
+    id: 'perm_laporan',
+    name: 'Laporan & Cetak Absensi Bulanan',
+    description: 'Akses rekapitulasi cetak PDF resmi ber-kop surat dan tanda tangan',
+    category: 'administrative',
+    allowedRoles: ['yayasan', 'kepala_sekolah']
+  },
+  {
+    id: 'perm_users',
+    name: 'Manajemen Akun & Freeze Pengguna',
+    description: 'Menambah, mengedit, menghapus, dan membekukan akun login pengguna',
+    category: 'administrative',
+    allowedRoles: ['yayasan']
+  },
+  {
+    id: 'perm_hak_akses',
+    name: 'Pengaturan Hak Akses Tampilan Website',
+    description: 'Matriks kontrol hak akses modul website untuk setiap role',
+    category: 'administrative',
+    allowedRoles: ['yayasan']
+  },
+  {
+    id: 'perm_wali_jadwal',
+    name: 'Portal Jadwal Terapi Anak (Wali)',
+    description: 'Melihat kalender jadwal dan terapis anak (Strict Read-Only)',
+    category: 'clinical',
+    allowedRoles: ['yayasan', 'murid']
+  },
+  {
+    id: 'perm_wali_evaluasi',
+    name: 'Portal Riwayat Evaluasi & PR (Wali)',
+    description: 'Membaca riwayat hasil terapi dan latihan di rumah (Strict Read-Only)',
+    category: 'clinical',
+    allowedRoles: ['yayasan', 'murid']
   }
 ];

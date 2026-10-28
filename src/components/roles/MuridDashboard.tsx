@@ -22,9 +22,11 @@ interface MuridDashboardProps {
 export const MuridDashboard: React.FC<MuridDashboardProps> = ({ activeTab }) => {
   const { currentUser, students, sessions, attendances, users } = useApp();
 
+  if (!currentUser) return null;
+
   // Find linked student for this parent
   const parentStudent = students.find(s => s.id === currentUser.studentId) || students[0];
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(parentStudent.id);
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(parentStudent ? parentStudent.id : '');
 
   const activeStudent = students.find(s => s.id === selectedStudentId) || parentStudent;
   const isFrozen = activeStudent.status === 'frozen';
