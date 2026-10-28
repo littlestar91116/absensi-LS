@@ -12,36 +12,42 @@ import { KepalaSekolahDashboard } from './components/roles/KepalaSekolahDashboar
 import { GuruDashboard } from './components/roles/GuruDashboard';
 import { MuridDashboard } from './components/roles/MuridDashboard';
 import { YayasanDashboard } from './components/roles/YayasanDashboard';
-import { ShieldCheck } from 'lucide-react';
-import { User } from './types';
+import { ShieldCheck, ShieldAlert, ArrowLeft } from 'lucide-react';
+import { User, UserRole } from './types';
 
 interface AuthenticatedDashboardProps {
   currentUser: User;
 }
+
+const ALLOWED_TABS_BY_ROLE: Record<UserRole, string[]> = {
+  yayasan: ['laporan', 'users', 'hak_akses', 'siswa', 'jadwal'],
+  kepala_sekolah: ['siswa', 'jadwal', 'pengganti', 'laporan'],
+  guru: ['jadwal_mengajar', 'absensi_input', 'izin_guru', 'riwayat_catatan'],
+  murid: ['wali_jadwal', 'wali_perkembangan']
+};
+
+const DEFAULT_TAB_BY_ROLE: Record<UserRole, string> = {
+  yayasan: 'laporan',
+  kepala_sekolah: 'siswa',
+  guru: 'jadwal_mengajar',
+  murid: 'wali_jadwal'
+};
 
 function AuthenticatedDashboard({ currentUser }: AuthenticatedDashboardProps) {
   const { hasPermission } = useApp();
   
   // Set initial tab based on role
   const [currentTab, setCurrentTab] = useState<string>(() => {
-    if (currentUser.role === 'yayasan') return 'laporan';
-    if (currentUser.role === 'guru') return 'jadwal_mengajar';
-    if (currentUser.role === 'murid') return 'wali_jadwal';
-    return 'siswa';
+    return DEFAULT_TAB_BY_ROLE[currentUser.role] || 'siswa';
   });
 
   // Sync default tab if currentUser changes
   useEffect(() => {
-    if (currentUser.role === 'yayasan') {
-      setCurrentTab('laporan');
-    } else if (currentUser.role === 'kepala_sekolah') {
-      setCurrentTab('siswa');
-    } else if (currentUser.role === 'guru') {
-      setCurrentTab('jadwal_mengajar');
-    } else if (currentUser.role === 'murid') {
-      setCurrentTab('wali_jadwal');
-    }
+    setCurrentTab(DEFAULT_TAB_BY_ROLE[currentUser.role] || 'siswa');
   }, [currentUser.id, currentUser.role]);
+
+  // Check role authorization for the current active tab
+  const isAuthorizedTab = ALLOWED_TABS_BY_ROLE[currentUser.role]?.includes(currentTab);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -52,35 +58,62 @@ function AuthenticatedDashboard({ currentUser }: AuthenticatedDashboardProps) {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
         {/* Real-time KPI Summary (Visible on standard dashboard views, hidden when printing or if role doesn't have permission) */}
-        {currentTab !== 'laporan' && hasPermission('perm_kpi') && <OverviewKPI />}
+        {isAuthorizedTab && currentTab !== 'laporan' && hasPermission('perm_kpi') && <OverviewKPI />}
 
-        {/* Dynamic Role Views */}
-        {currentUser.role === 'yayasan' && (
+        {/* Unauthorized Access Fallback (Scenario 11 Guard) */}
+        {!isAuthorizedTab ? (
+          <div className="max-w-xl mx-auto my-12 bg-white border border-rose-200 rounded-2xl p-8 shadow-xl text-center animate-in fade-in zoom-in-95">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <ShieldAlert className="w-9 h-9" />
+            </div>
+            <span className="inline-block px-3 py-1 bg-rose-50 text-rose-700 text-xs font-mono font-bold rounded-full mb-3 border border-rose-200">
+              HTTP 403 · AKSES DITOLAK
+            </span>
+            <h2 className="text-xl font-black text-slate-900 mb-2">
+              Tidak Memiliki Izin Otorisasi
+            </h2>
+            <p className="text-xs text-slate-600 leading-relaxed mb-6">
+              Akun Anda dengan peran <strong>{currentUser.title}</strong> (<code>{currentUser.role}</code>) tidak diberikan wewenang untuk membuka modul <strong>"{currentTab}"</strong>. Little Star Learning Center menerapkan sistem kontrol akses berbasis peran (RBAC) yang ketat demi menjaga kerahasiaan data siswa dan rekam medis.
+            </p>
+            <button
+              onClick={() => setCurrentTab(DEFAULT_TAB_BY_ROLE[currentUser.role])}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Kembali ke Beranda Resmi ({DEFAULT_TAB_BY_ROLE[currentUser.role]})</span>
+            </button>
+          </div>
+        ) : (
+          /* Authorized Dynamic Role Views */
           <div>
-            {currentTab === 'laporan' || currentTab === 'users' || currentTab === 'hak_akses' ? (
-              <YayasanDashboard activeTab={currentTab} />
-            ) : (
-              <KepalaSekolahDashboard activeTab={currentTab} />
+            {currentUser.role === 'yayasan' && (
+              <div>
+                {currentTab === 'laporan' || currentTab === 'users' || currentTab === 'hak_akses' ? (
+                  <YayasanDashboard activeTab={currentTab} />
+                ) : (
+                  <KepalaSekolahDashboard activeTab={currentTab} />
+                )}
+              </div>
+            )}
+
+            {currentUser.role === 'kepala_sekolah' && (
+              <div>
+                {currentTab === 'laporan' ? (
+                  <YayasanDashboard activeTab={currentTab} />
+                ) : (
+                  <KepalaSekolahDashboard activeTab={currentTab} />
+                )}
+              </div>
+            )}
+
+            {currentUser.role === 'guru' && (
+              <GuruDashboard activeTab={currentTab} />
+            )}
+
+            {currentUser.role === 'murid' && (
+              <MuridDashboard activeTab={currentTab} />
             )}
           </div>
-        )}
-
-        {currentUser.role === 'kepala_sekolah' && (
-          <div>
-            {currentTab === 'laporan' ? (
-              <YayasanDashboard activeTab={currentTab} />
-            ) : (
-              <KepalaSekolahDashboard activeTab={currentTab} />
-            )}
-          </div>
-        )}
-
-        {currentUser.role === 'guru' && (
-          <GuruDashboard activeTab={currentTab} />
-        )}
-
-        {currentUser.role === 'murid' && (
-          <MuridDashboard activeTab={currentTab} />
         )}
 
       </main>

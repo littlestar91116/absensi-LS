@@ -20,6 +20,7 @@ import {
   INITIAL_SCHEDULE_PROPOSALS,
   INITIAL_VIEW_PERMISSIONS
 } from '../data/mockData';
+import { authService } from '../services/authService';
 
 interface AppContextType {
   currentUser: User | null;
@@ -90,45 +91,14 @@ const STORAGE_KEY = 'terapina_v2_store';
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Load initial users with automatic repair and synchronization
+  // Load users from authService (Strict separation of auth.users credentials & public.profiles)
   const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY}_users`);
-    if (!saved) return INITIAL_USERS;
-    try {
-      const parsed: User[] = JSON.parse(saved);
-      // Ensure all users have valid sanitized fields and defaults
-      const repaired = parsed.map(u => {
-        const cleanName = (u.name || 'Pengguna').trim();
-        const rawEmail = (u.email || '').trim().toLowerCase();
-        const finalEmail = rawEmail.includes('@')
-          ? rawEmail
-          : rawEmail.length > 0
-            ? `${rawEmail}@littlestar.sch.id`
-            : `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@littlestar.sch.id`;
-
-        return {
-          ...u,
-          name: cleanName,
-          email: finalEmail,
-          password: (u.password && u.password.trim()) ? u.password.trim() : 'password123',
-          status: u.status || 'active'
-        };
-      });
-
-      // Also ensure initial base users exist so user is never locked out
-      const missingInitial = INITIAL_USERS.filter(
-        initU => !repaired.some(r => r.id === initU.id || r.email.toLowerCase() === initU.email.toLowerCase())
-      );
-      return [...repaired, ...missingInitial];
-    } catch {
-      return INITIAL_USERS;
-    }
+    return authService.getAllUsers();
   });
 
-  // Current logged in user (null by default so initial view is Login Screen)
+  // Current logged in user: restore active session safely, auto-revoking if frozen
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY}_currentUser`);
-    return saved ? JSON.parse(saved) : null;
+    return authService.restoreSession();
   });
 
   const [students, setStudents] = useState<Student[]>(() => {
@@ -207,70 +177,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(`${STORAGE_KEY}_viewPermissions`, JSON.stringify(viewPermissions));
   }, [viewPermissions]);
 
-  // Auth: Flexible & Robust Login with credentials
+  // Auth: Delegated to authService (Verifying auth.users and public.profiles)
   const login = (email: string, password?: string): { success: boolean; message?: string } => {
-    if (!email || !email.trim()) {
-      return { success: false, message: 'Silakan masukkan email atau ID Pengguna Anda.' };
+    const result = authService.signIn(email, password);
+    if (result.success && result.user) {
+      setCurrentUser(result.user);
+      return { success: true };
     }
-
-    const query = email.trim().toLowerCase();
-    const queryWithoutDomain = query.split('@')[0];
-    const inputPass = (password || '').trim();
-
-    const foundUser = users.find(u => {
-      const uEmail = (u.email || '').trim().toLowerCase();
-      const uEmailUsername = uEmail.split('@')[0];
-      const uId = (u.id || '').trim().toLowerCase();
-      const uName = (u.name || '').trim().toLowerCase();
-
-      return (
-        uEmail === query ||
-        uEmailUsername === query ||
-        uEmailUsername === queryWithoutDomain ||
-        uId === query ||
-        uName === query ||
-        (!query.includes('@') && uEmail === `${query}@littlestar.sch.id`) ||
-        (query.includes('@') && !uEmail.includes('@') && `${uEmail}@littlestar.sch.id` === query)
-      );
-    });
-
-    if (!foundUser) {
-      return { 
-        success: false, 
-        message: `Akun "${email}" tidak ditemukan. Pastikan email atau username yang dimasukkan sesuai akun yang terdaftar di Little Star Learning Center.` 
-      };
-    }
-
-    // Check account status: Frozen accounts CANNOT log in!
-    if (foundUser.status === 'frozen') {
-      return { 
-        success: false, 
-        message: `Akun ini DIBEKUKAN oleh Super Admin / Yayasan. Alasan: "${foundUser.freezeReason || 'Penangguhan akses administratif'}". Hubungi Yayasan untuk pengaktifan kembali.` 
-      };
-    }
-
-    if (foundUser.status === 'inactive') {
-      return { success: false, message: 'Akun ini dalam status Non-Aktif.' };
-    }
-
-    // Check password
-    if (!inputPass) {
-      return { success: false, message: 'Kata sandi wajib diisi.' };
-    }
-
-    const userPass = (foundUser.password || 'password123').trim();
-    if (userPass !== inputPass) {
-      return { 
-        success: false, 
-        message: 'Kata sandi tidak sesuai. Jika belum diubah, gunakan kata sandi default "password123".' 
-      };
-    }
-
-    setCurrentUser(foundUser);
-    return { success: true };
+    return { success: false, message: result.message || 'Login gagal.' };
   };
 
-  // Quick 1-click login for demo/testing
+  // Quick login for demo/testing
   const quickLogin = (user: User): { success: boolean; message?: string } => {
     if (user.status === 'frozen') {
       return { 
@@ -278,101 +195,102 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         message: `Akun ${user.name} saat ini DIBEKUKAN oleh Super Admin. Alasan: "${user.freezeReason || 'Penangguhan akses'}".` 
       };
     }
-    setCurrentUser(user);
-    return { success: true };
+    const result = authService.signIn(user.email, user.password || 'password123');
+    if (result.success && result.user) {
+      setCurrentUser(result.user);
+      return { success: true };
+    }
+    return { success: false, message: result.message };
   };
 
   const logout = () => {
+    authService.signOut();
     setCurrentUser(null);
   };
 
-  // Super Admin: User Management & Freeze
+  // Super Admin: User Management & Freeze (Atomic auth.users + public.profiles)
   const addUser = (userData: Omit<User, 'id'>): User => {
-    const cleanName = (userData.name || 'Pengguna Baru').trim();
-    const rawEmail = (userData.email || '').trim().toLowerCase();
-    const finalEmail = rawEmail.includes('@')
-      ? rawEmail
-      : rawEmail.length > 0
-        ? `${rawEmail}@littlestar.sch.id`
-        : `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@littlestar.sch.id`;
+    const res = authService.adminCreateUser({
+      name: userData.name,
+      email: userData.email,
+      password: userData.password,
+      role: userData.role,
+      status: userData.status,
+      phone: userData.phone,
+      title: userData.title,
+      specialization: userData.specialization,
+      studentId: userData.studentId,
+      avatarColor: userData.avatarColor
+    });
 
-    const newUser: User = {
-      ...userData,
-      id: `usr-${Date.now().toString().slice(-6)}`,
-      name: cleanName,
-      email: finalEmail,
-      password: (userData.password || 'password123').trim() || 'password123',
-      status: userData.status || 'active',
-      phone: (userData.phone || '0812-xxxx').trim(),
-      title: (userData.title || (userData.role === 'guru' ? 'Terapis Klinis' : userData.role === 'murid' ? 'Wali Murid' : 'Staf')).trim(),
-      specialization: userData.specialization ? userData.specialization.trim() : undefined,
-      studentId: userData.studentId
+    if (!res.success || !res.user) {
+      throw new Error(res.message || 'Gagal menambahkan akun.');
+    }
+
+    const updatedList = authService.getAllUsers();
+    setUsers(updatedList);
+
+    return {
+      ...res.user,
+      password: res.plainPassword || userData.password || 'password123'
     };
-
-    setUsers(prev => [...prev, newUser]);
-    return newUser;
   };
 
   const updateUser = (userData: User): User => {
-    const cleanName = (userData.name || 'Pengguna').trim();
-    const rawEmail = (userData.email || '').trim().toLowerCase();
-    const finalEmail = rawEmail.includes('@')
-      ? rawEmail
-      : rawEmail.length > 0
-        ? `${rawEmail}@littlestar.sch.id`
-        : userData.email;
+    const res = authService.adminUpdateUser({
+      id: userData.id,
+      name: userData.name,
+      email: userData.email,
+      password: userData.password,
+      role: userData.role,
+      status: userData.status,
+      phone: userData.phone,
+      title: userData.title,
+      specialization: userData.specialization,
+      studentId: userData.studentId,
+      avatarColor: userData.avatarColor,
+      freezeReason: userData.freezeReason
+    });
 
-    const sanitizedUser: User = {
-      ...userData,
-      name: cleanName,
-      email: finalEmail,
-      password: (userData.password || 'password123').trim() || 'password123',
-      status: userData.status || 'active',
-      phone: (userData.phone || '').trim(),
-      title: (userData.title || '').trim(),
-      specialization: userData.specialization ? userData.specialization.trim() : undefined,
-      studentId: userData.studentId
-    };
-
-    setUsers(prev => prev.map(u => u.id === sanitizedUser.id ? sanitizedUser : u));
-    if (currentUser?.id === sanitizedUser.id) {
-      setCurrentUser(sanitizedUser);
+    if (!res.success || !res.user) {
+      throw new Error(res.message || 'Gagal memperbarui akun.');
     }
-    return sanitizedUser;
+
+    const updatedList = authService.getAllUsers();
+    setUsers(updatedList);
+
+    if (currentUser?.id === res.user.id) {
+      if (res.user.status === 'frozen' || res.user.status === 'inactive') {
+        logout();
+      } else {
+        setCurrentUser(res.user);
+      }
+    }
+
+    return {
+      ...res.user,
+      password: userData.password || 'password123'
+    };
   };
 
   const deleteUser = (userId: string) => {
-    setUsers(prev => prev.filter(u => u.id !== userId));
+    authService.adminDeleteUser(userId);
+    setUsers(authService.getAllUsers());
     if (currentUser?.id === userId) {
       logout();
     }
   };
 
   const toggleFreezeUser = (userId: string, reason?: string) => {
-    setUsers(prev => prev.map(u => {
-      if (u.id !== userId) return u;
-      const isCurrentlyFrozen = u.status === 'frozen';
-      if (isCurrentlyFrozen) {
-        return {
-          ...u,
-          status: 'active',
-          freezeReason: undefined,
-          frozenAt: undefined
-        };
-      } else {
-        return {
-          ...u,
-          status: 'frozen',
-          freezeReason: reason || 'Dibekukan oleh Super Admin / Yayasan',
-          frozenAt: new Date().toISOString().split('T')[0]
-        };
+    const res = authService.adminToggleFreeze(userId, reason);
+    setUsers(authService.getAllUsers());
+    if (currentUser?.id === userId) {
+      const updatedUser = res.user;
+      if (updatedUser?.status === 'frozen') {
+        logout();
+      } else if (updatedUser) {
+        setCurrentUser(updatedUser);
       }
-    }));
-
-    // If the currently logged in user gets frozen, log them out
-    if (currentUser?.id === userId && currentUser.status !== 'frozen') {
-      alert('Akun Anda baru saja dibekukan oleh Super Admin. Anda akan diarahkan ke halaman login.');
-      logout();
     }
   };
 
@@ -680,7 +598,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetToDefaultData = () => {
-    setUsers(INITIAL_USERS);
+    authService.resetToDefault();
+    setUsers(authService.getAllUsers());
     setCurrentUser(null); // Return to login view
     setStudents(INITIAL_STUDENTS);
     setSchedules(INITIAL_SCHEDULES);
